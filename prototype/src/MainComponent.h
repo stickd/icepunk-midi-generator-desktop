@@ -43,10 +43,12 @@ private:
     GenerationBatch current;
     juce::File previousFolder;
     juce::String lastError;
-    bool busy = false, exportOpen = false, dragging = false;
+    bool busy = false, exportOpen = false, dragging = false, liveWritePending = false;
     int pulse = 0;
     juce::String selectedTargetKey() const;
     void updateScaleChoice();
     void applyLiveControls();
+    void flushLiveMidi();
+    LiveControls liveControls() const;
     void configureLiveControl(juce::Slider&, juce::String name, double initial);
 };

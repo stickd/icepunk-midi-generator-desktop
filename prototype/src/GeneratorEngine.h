@@ -17,7 +17,8 @@ struct GeneratedClip
 };
 struct GenerationBatch { juce::File folder; std::vector<GeneratedClip> clips; };
 GeneratedClip parseMidi(const juce::File&);
-void applyLiveControls(GenerationBatch&, LiveControls);
+void updateLivePreview(GenerationBatch&, LiveControls);
+void writeLiveMidi(GenerationBatch&, LiveControls);
 void removeOwnedBatch(const juce::File& batch, const juce::File& session);
 
 // Replace this interface with a native engine later; the UI need not change.

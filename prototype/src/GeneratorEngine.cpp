@@ -143,11 +143,16 @@ GeneratedClip parseMidi(const juce::File& file)
     return clip;
 }
 
-void applyLiveControls(GenerationBatch& batch, LiveControls controls)
+void updateLivePreview(GenerationBatch& batch, LiveControls controls)
+{
+    for (auto& clip : batch.clips)
+        clip.notes = transformedNotes(clip, controls);
+}
+
+void writeLiveMidi(GenerationBatch& batch, LiveControls controls)
 {
     for (auto& clip : batch.clips)
     {
-        clip.notes = transformedNotes(clip, controls);
         const bool baseline = controls.mutation == 0.0f && controls.density == 1.0f;
         if (baseline && clip.baseFileData.getSize() != 0)
         {

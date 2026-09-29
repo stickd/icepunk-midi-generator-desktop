@@ -54,6 +54,7 @@ MainComponent::MainComponent(juce::File project) : projectRoot(std::move(project
         rows[i]->onExport = [this](const juce::File& f) { exportMidi(f); };
         rows[i]->onError = [this](juce::String text) { setStatus(text, true); };
         rows[i]->onDragActivity = [this](bool active) {
+            if (active) flushLiveMidi();
             dragging = active; generateButton.setEnabled(!busy && !active && !exportOpen);
         };
         addAndMakeVisible(*rows[i]);
@@ -89,6 +90,7 @@ void MainComponent::setLiveControlsForTest(float newMutation, float newVariation
     variation.setValue(newVariation * 100.0, juce::dontSendNotification);
     density.setValue(newDensity * 100.0, juce::dontSendNotification);
     applyLiveControls();
+    flushLiveMidi();
 }
 
 void MainComponent::setStatus(juce::String text, bool error)
@@ -115,13 +117,18 @@ void MainComponent::generateNow()
 
 void MainComponent::timerCallback()
 {
+    if (!busy)
+    {
+        flushLiveMidi();
+        return;
+    }
     ++pulse;
     generateButton.setButtonText("GENERATING" + juce::String::repeatedString(".", pulse % 4));
 }
 
 void MainComponent::finish(GenerationBatch batch, juce::String error)
 {
-    stopTimer(); busy = false; lastError = error;
+    stopTimer(); busy = false; liveWritePending = false; lastError = error;
     generateButton.setEnabled(true); generateButton.setButtonText("GENERATE");
     for (auto& row : rows) row->setEnabled(true);
     if (error.isNotEmpty()) { setStatus(error + "  Previous patterns kept. Try again.", true); return; }
@@ -141,7 +148,8 @@ void MainComponent::configureLiveControl(juce::Slider& control, juce::String nam
 {
     control.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
     control.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 62, 16);
-    control.setRange(0.0, 100.0, 1.0); control.setValue(initial);
+    control.setRange(0.0, 100.0, 0.1); control.setValue(initial);
+    control.setNumDecimalPlacesToDisplay(1);
     control.setTextValueSuffix("%");
     control.setColour(juce::Slider::rotarySliderFillColourId, Ice::blue);
     control.setColour(juce::Slider::rotarySliderOutlineColourId, Ice::line);
@@ -158,17 +166,38 @@ void MainComponent::applyLiveControls()
     if (busy || current.clips.empty()) return;
     try
     {
-        ::applyLiveControls(current, { float(mutation.getValue() / 100.0), float(variation.getValue() / 100.0),
-                                        float(density.getValue() / 100.0) });
+        ::updateLivePreview(current, liveControls());
         for (int i = 0; i < 5; ++i) rows[i]->setClip(current.clips[size_t(i)]);
-        setStatus("Live controls update the five MIDI patterns. Return a control to its old value to restore that state.");
+        liveWritePending = true;
+        // Debounce disk writes while the user is still dragging a control.
+        startTimer(80);
     }
     catch (const std::exception& error) { setStatus(error.what(), true); }
+}
+
+LiveControls MainComponent::liveControls() const
+{
+    return { float(mutation.getValue() / 100.0), float(variation.getValue() / 100.0),
+             float(density.getValue() / 100.0) };
+}
+
+void MainComponent::flushLiveMidi()
+{
+    if (!liveWritePending || busy || current.clips.empty()) return;
+    try
+    {
+        ::writeLiveMidi(current, liveControls());
+        liveWritePending = false;
+        stopTimer();
+        setStatus("Live controls update the five MIDI patterns. Return a control to its old value to restore that state.");
+    }
+    catch (const std::exception& error) { liveWritePending = false; stopTimer(); setStatus(error.what(), true); }
 }
 
 void MainComponent::exportMidi(const juce::File& source)
 {
     if (busy || exportOpen || dragging) return;
+    flushLiveMidi();
     exportOpen = true; generateButton.setEnabled(false);
     auto initial = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
         .getChildFile("ICEPUNK_" + source.getFileName());
