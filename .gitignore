@@ -5,7 +5,7 @@ dist/
 app/
 **/__pycache__/
 *.pyc
-prototype/build/
+prototype/build*/
 generated_midi/
 
 # Local environments and credentials
