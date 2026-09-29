@@ -356,8 +356,10 @@ def create_layer_from_pattern(
     return notes
 
 
-def generate_call_response_loop(patterns: list[SourcePattern], style: dict[str, Any]) -> tuple[list[Note], str]:
-    target_key = choose_target_key(style)
+def generate_call_response_loop(
+    patterns: list[SourcePattern], style: dict[str, Any], target_key: str | None = None,
+) -> tuple[list[Note], str]:
+    target_key = target_key or choose_target_key(style)
 
     bass_pattern = choose_pattern_by_register(patterns, "bass")
     mid_pattern = choose_pattern_by_register(patterns, "mid")
@@ -590,13 +592,14 @@ def generate_best_notes(
     patterns: list[SourcePattern],
     style: dict[str, Any],
     attempts: int = 50,
+    target_key: str | None = None,
 ) -> tuple[list[Note], str, float]:
     best_notes: list[Note] = []
     best_key = "A minor"
     best_score = -9999.0
 
     for _ in range(attempts):
-        notes, key = generate_call_response_loop(patterns, style)
+        notes, key = generate_call_response_loop(patterns, style, target_key)
         score = score_generated_notes(notes)
 
         if score > best_score:

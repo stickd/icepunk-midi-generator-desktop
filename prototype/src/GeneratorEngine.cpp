@@ -11,7 +11,7 @@ GeneratedClip parseMidi(const juce::File& file)
     juce::MidiFile midi;
     if (!stream || !midi.readFrom(*stream, false) || midi.getTimeFormat() <= 0)
         throw std::runtime_error("Cannot read the generated MIDI.");
-    GeneratedClip clip { file, {}, 0.0 };
+    GeneratedClip clip { file, {}, {}, 0.0 };
     const double tpq = midi.getTimeFormat();
     for (int t = 0; t < midi.getNumTracks(); ++t)
     {
@@ -49,7 +49,7 @@ void removeOwnedBatch(const juce::File& batch, const juce::File& session)
         batch.deleteRecursively();
 }
 
-GenerationBatch PythonGeneratorEngine::generate(std::function<bool()> cancelled)
+GenerationBatch PythonGeneratorEngine::generate(juce::String targetKey, std::function<bool()> cancelled)
 {
     auto batchFolder = sessionRoot.getChildFile("batch-" + juce::Uuid().toString());
     juce::ChildProcess process;
@@ -72,6 +72,7 @@ GenerationBatch PythonGeneratorEngine::generate(std::function<bool()> cancelled)
     }
    #endif
     args.addArray({"--output-dir", batchFolder.getFullPathName()});
+    if (targetKey.isNotEmpty()) args.addArray({"--target-key", targetKey});
     juce::Logger::writeToLog("Starting engine: " + args[0]);
     if (!process.start(args))
     {
@@ -107,6 +108,7 @@ GenerationBatch PythonGeneratorEngine::generate(std::function<bool()> cancelled)
             auto clip = parseMidi(batchFolder.getChildFile("midi_" + juce::String(i) + ".mid"));
             if (int(clip.notes.size()) != int((*clips)[i - 1]["notes"]))
                 throw std::runtime_error("Preview note count differs from the generated MIDI.");
+            clip.key = (*clips)[i - 1]["key"].toString();
             batch.clips.push_back(std::move(clip));
         }
         return batch;
@@ -123,7 +125,7 @@ void GenerationWorker::run()
 {
     GenerationBatch batch;
     juce::String error;
-    try { batch = engine.generate([this] { return threadShouldExit(); }); }
+    try { batch = engine.generate(target, [this] { return threadShouldExit(); }); }
     catch (const std::exception& e) { error = juce::String::fromUTF8(e.what()); }
     if (!threadShouldExit())
         juce::MessageManager::callAsync([callback = complete, batch = std::move(batch), error]() mutable {

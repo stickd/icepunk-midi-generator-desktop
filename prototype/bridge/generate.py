@@ -93,11 +93,25 @@ def repeat_two_bar_phrase(notes, ticks_per_beat: int = 480):
     return sorted(first_half + repeated, key=lambda note: (note.start_beat, note.pitch))
 
 
-def generate_batch(output_dir: Path, analysis_file: Path | None = None) -> dict:
+VALID_ROOTS = ('C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B')
+VALID_MODES = ('minor', 'major')
+
+
+def validate_target_key(value: str | None) -> str | None:
+    if value is None:
+        return None
+    parts = value.split()
+    if len(parts) != 2 or parts[0] not in VALID_ROOTS or parts[1] not in VALID_MODES:
+        raise ValueError('Choose a valid key and scale.')
+    return value
+
+
+def generate_batch(output_dir: Path, analysis_file: Path | None = None, target_key: str | None = None) -> dict:
     g = load_generator()
     source = analysis_file or PROJECT_ROOT / "analysis_output/midi_analysis.json"
     analysis = json.loads(source.read_text(encoding="utf-8"))
     patterns, style = g.load_patterns(analysis)
+    target_key = validate_target_key(target_key)
     output_dir = output_dir.resolve()
     # Fresh batch only: never overwrite a previous successful result.
     output_dir.mkdir(parents=True, exist_ok=False)
@@ -105,7 +119,7 @@ def generate_batch(output_dir: Path, analysis_file: Path | None = None) -> dict:
     try:
         for index in range(1, 6):
             # Original selection, mutations, 50 attempts and scoring, unmodified.
-            notes, key, score = g.generate_best_notes(patterns, style, attempts=50)
+            notes, key, score = g.generate_best_notes(patterns, style, attempts=50, target_key=target_key)
             notes = repeat_two_bar_phrase(notes, g.DEFAULT_TICKS_PER_BEAT)
             output = output_dir / f"midi_{index}.mid"
             g.write_midi(notes, output, bpm=style["bpm"])
@@ -122,6 +136,7 @@ def generate_batch(output_dir: Path, analysis_file: Path | None = None) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser(description="ICEPUNK five-variation local bridge")
     parser.add_argument("--output-dir", type=Path)
+    parser.add_argument("--target-key", help="Optional forced key, for example 'F# minor'")
     parser.add_argument("--diagnostics", action='store_true')
     args = parser.parse_args()
     if args.diagnostics:
@@ -137,7 +152,7 @@ def main() -> int:
         parser.error('--output-dir is required unless --diagnostics is used')
     try:
         engine_logger().info('Generation started (frozen=%s)', bool(getattr(sys, 'frozen', False)))
-        result = generate_batch(args.output_dir)
+        result = generate_batch(args.output_dir, target_key=args.target_key)
         engine_logger().info('Generation completed: five files')
     except Exception as exc:
         try:

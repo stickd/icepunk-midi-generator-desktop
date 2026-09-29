@@ -37,6 +37,11 @@ void MidiPreview::paint(juce::Graphics& g)
     g.setColour(clip.notes.empty() ? Ice::muted : Ice::white);
     g.setFont(Ice::font(24));
     g.drawText(juce::String(index).paddedLeft('0', 2), 18, 28, 48, 29, juce::Justification::centredLeft);
+    if (clip.key.isNotEmpty())
+    {
+        g.setColour(Ice::blue.withAlpha(0.85f)); g.setFont(Ice::font(9, true));
+        g.drawText(clip.key.toUpperCase(), 17, getHeight() - 27, 58, 13, juce::Justification::centredLeft);
+    }
 
     juce::Rectangle<float> roll(80, 10, float(getWidth() - 164), float(getHeight() - 20));
     int low = 48, high = 84;

@@ -34,6 +34,7 @@ private:
     std::unique_ptr<GenerationWorker> worker;
     std::unique_ptr<juce::FileChooser> chooser;
     juce::TextButton generateButton { "GENERATE" };
+    juce::ComboBox keyChoice, scaleChoice;
     std::array<std::unique_ptr<MidiPreview>, 5> rows;
     juce::Label status;
     juce::TooltipWindow tips { this, 700 };
@@ -42,4 +43,6 @@ private:
     juce::String lastError;
     bool busy = false, exportOpen = false, dragging = false;
     int pulse = 0;
+    juce::String selectedTargetKey() const;
+    void updateScaleChoice();
 };

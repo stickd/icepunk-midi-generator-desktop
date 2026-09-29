@@ -33,6 +33,18 @@ MainComponent::MainComponent(juce::File project) : projectRoot(std::move(project
     generateButton.setTooltip("Create five new MIDI variations");
     generateButton.onClick = [this] { generateNow(); };
     addAndMakeVisible(generateButton);
+    keyChoice.addItem("RANDOM KEY", 1);
+    const juce::StringArray roots { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+    for (int i = 0; i < roots.size(); ++i) keyChoice.addItem(roots[i], i + 2);
+    keyChoice.setSelectedId(1);
+    keyChoice.setTooltip("Choose a key, or leave Random Key for the dataset's natural variety.");
+    keyChoice.onChange = [this] { updateScaleChoice(); };
+    addAndMakeVisible(keyChoice);
+    scaleChoice.addItem("MINOR", 1); scaleChoice.addItem("MAJOR", 2);
+    scaleChoice.setSelectedId(1);
+    scaleChoice.setTooltip("Choose the scale used when you choose a key.");
+    addAndMakeVisible(scaleChoice);
+    updateScaleChoice();
     for (int i = 0; i < 5; ++i)
     {
         rows[i] = std::make_unique<MidiPreview>(i + 1);
@@ -81,9 +93,10 @@ void MainComponent::generateNow()
     worker.reset(); busy = true; lastError.clear(); pulse = 0;
     generateButton.setEnabled(false); generateButton.setButtonText("GENERATING");
     for (auto& row : rows) row->setEnabled(false);
-    setStatus("Creating five new patterns..."); startTimer(300);
+    const auto target = selectedTargetKey();
+    setStatus(target.isEmpty() ? "Creating five new patterns..." : "Creating five patterns in " + target + "..."); startTimer(300);
     juce::Component::SafePointer<MainComponent> safe(this);
-    worker = std::make_unique<GenerationWorker>(*engine, [safe](GenerationBatch batch, juce::String error) {
+    worker = std::make_unique<GenerationWorker>(*engine, target, [safe](GenerationBatch batch, juce::String error) {
         if (safe) safe->finish(std::move(batch), error);
     });
     worker->startThread();
@@ -136,10 +149,25 @@ void MainComponent::resized()
 {
     const int margin = 32;
     generateButton.setBounds(getWidth() - margin - 210, 47, 210, 46);
-    const int top = 151, gap = 10;
+    keyChoice.setBounds(margin, 117, 155, 28);
+    scaleChoice.setBounds(margin + 165, 117, 120, 28);
+    const int top = 174, gap = 10;
     const int rowHeight = (getHeight() - top - 46 - 4 * gap) / 5;
     for (int i = 0; i < 5; ++i) rows[i]->setBounds(margin, top + i * (rowHeight + gap), getWidth() - margin * 2, rowHeight);
     status.setBounds(margin - 3, getHeight() - 36, getWidth() - 2 * margin + 6, 22);
+}
+
+juce::String MainComponent::selectedTargetKey() const
+{
+    if (keyChoice.getSelectedId() == 1) return {};
+    return keyChoice.getText() + " " + scaleChoice.getText().toLowerCase();
+}
+
+void MainComponent::updateScaleChoice()
+{
+    const bool random = keyChoice.getSelectedId() == 1;
+    scaleChoice.setEnabled(!random);
+    scaleChoice.setAlpha(random ? 0.45f : 1.0f);
 }
 
 void MainComponent::paint(juce::Graphics& g)
@@ -147,8 +175,10 @@ void MainComponent::paint(juce::Graphics& g)
     g.fillAll(Ice::background);
     g.setGradientFill(juce::ColourGradient(juce::Colour(0xff132633), 380, -100, Ice::background, 480, 155, true));
     g.fillRect(getLocalBounds());
-    g.setColour(Ice::line); g.drawHorizontalLine(120, 32, float(getWidth() - 32));
-    g.setColour(Ice::blue); g.fillRect(32, 120, 36, 1);
+    g.setColour(Ice::muted); g.setFont(Ice::font(9, true));
+    g.drawText("KEY / SCALE", 32, 103, 160, 12, juce::Justification::left);
+    g.setColour(Ice::line); g.drawHorizontalLine(155, 32, float(getWidth() - 32));
+    g.setColour(Ice::blue); g.fillRect(32, 155, 36, 1);
     auto word = Ice::font(32, true); word.setExtraKerningFactor(0.14f); g.setFont(word);
     g.setColour(Ice::white); g.drawText("ICEPUNK", 31, 37, 320, 42, juce::Justification::left);
     g.setFont(Ice::font(10)); g.setColour(Ice::muted);

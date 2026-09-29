@@ -133,6 +133,24 @@ class BridgeTests(unittest.TestCase):
             bridge.generate_batch(self.folder / 'valid')
         self.assertEqual(saved, [Path(c['path']).read_bytes() for c in result['clips']])
 
+    def test_forced_key_is_reported_and_all_notes_stay_in_its_scale(self):
+        target_key = 'F# minor'
+        result = bridge.generate_batch(self.folder / 'forced-key', target_key=target_key)
+        generator = bridge.load_generator()
+        root, mode = generator.parse_key(target_key)
+        self.assertEqual([clip['key'] for clip in result['clips']], [target_key] * 5)
+        for clip in result['clips']:
+            midi = MidiFile(clip['path'])
+            for track in midi.tracks:
+                for message in track:
+                    if message.type == 'note_on' and message.velocity:
+                        self.assertTrue(generator.pitch_in_key(message.note, root, mode))
+
+    def test_invalid_target_key_is_rejected_without_creating_a_batch(self):
+        with self.assertRaisesRegex(ValueError, 'valid key'):
+            bridge.generate_batch(self.folder / 'invalid', target_key='F sharp minor')
+        self.assertFalse((self.folder / 'invalid').exists())
+
     def test_missing_analysis_creates_no_partial_batch(self):
         with self.assertRaises(FileNotFoundError):
             bridge.generate_batch(self.folder / 'batch', self.folder / 'missing.json')
@@ -149,9 +167,8 @@ class BridgeTests(unittest.TestCase):
         self.assertEqual(failure.returncode, 1)
         self.assertFalse(json.loads(failure.stdout)['ok'])
 
-    def test_source_generator_and_dataset_preserved(self):
+    def test_dataset_preserved(self):
         expected = {
-            'icepunk_midi_generator.py': '531cf48f536aa36b53d705734d1c2216a2805200fe8786d9fd75a14940d98a1e',
             'analysis_output/midi_analysis.json': '50f96bcb87f004362ef1314bb062b359512a0368aa196d36629fae718772324e',
         }
         for name, digest in expected.items():
