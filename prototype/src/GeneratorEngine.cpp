@@ -170,7 +170,7 @@ void removeOwnedBatch(const juce::File& batch, const juce::File& session)
         batch.deleteRecursively();
 }
 
-GenerationBatch PythonGeneratorEngine::generate(juce::String targetKey, std::function<bool()> cancelled)
+GenerationBatch PythonGeneratorEngine::generate(juce::String targetKey, juce::File analysisFile, std::function<bool()> cancelled)
 {
     auto batchFolder = sessionRoot.getChildFile("batch-" + juce::Uuid().toString());
     juce::ChildProcess process;
@@ -194,6 +194,11 @@ GenerationBatch PythonGeneratorEngine::generate(juce::String targetKey, std::fun
    #endif
     args.addArray({"--output-dir", batchFolder.getFullPathName()});
     if (targetKey.isNotEmpty()) args.addArray({"--target-key", targetKey});
+    if (analysisFile != juce::File())
+    {
+        if (!analysisFile.existsAsFile()) throw std::runtime_error("Custom MIDI profile is missing. Analyze the folder again.");
+        args.addArray({"--analysis-file", analysisFile.getFullPathName()});
+    }
     juce::Logger::writeToLog("Starting engine: " + args[0]);
     if (!process.start(args))
     {
@@ -250,10 +255,68 @@ void GenerationWorker::run()
 {
     GenerationBatch batch;
     juce::String error;
-    try { batch = engine.generate(target, [this] { return threadShouldExit(); }); }
+    try { batch = engine.generate(target, profile, [this] { return threadShouldExit(); }); }
     catch (const std::exception& e) { error = juce::String::fromUTF8(e.what()); }
     if (!threadShouldExit())
         juce::MessageManager::callAsync([callback = complete, batch = std::move(batch), error]() mutable {
             callback(std::move(batch), error);
+        });
+}
+
+DatasetAnalysis PythonGeneratorEngine::analyzeDataset(juce::File folder, juce::File profile, std::function<bool()> cancelled)
+{
+    if (!folder.isDirectory()) throw std::runtime_error("Choose a folder containing MIDI files.");
+    juce::ChildProcess process;
+    juce::StringArray args;
+    auto packaged = icepunkPackagedEngine(projectRoot);
+    if (packaged.existsAsFile()) args.add(packaged.getFullPathName());
+   #if ICEPUNK_DEVELOPMENT_ENGINE
+    else
+    {
+        auto python = juce::SystemStats::getEnvironmentVariable("ICEPUNK_PYTHON", "python");
+        auto bridge = projectRoot.getChildFile("prototype/bridge/generate.py");
+        if (!bridge.existsAsFile()) throw std::runtime_error("Generator engine is missing. Please reinstall ICEPUNK.");
+        args.addArray({python, "-B", bridge.getFullPathName()});
+    }
+   #else
+    else throw std::runtime_error("Generator engine is missing. Please reinstall ICEPUNK.");
+   #endif
+    args.addArray({"--analyze-dir", folder.getFullPathName(), "--profile-file", profile.getFullPathName()});
+    if (!process.start(args)) throw std::runtime_error("Cannot start the custom dataset analyzer.");
+    auto started = juce::Time::getMillisecondCounterHiRes();
+    while (process.isRunning())
+    {
+        if (cancelled() || juce::Time::getMillisecondCounterHiRes() - started > 120000)
+        {
+            process.kill(); process.waitForProcessToFinish(2000);
+            throw std::runtime_error(cancelled() ? "Analysis cancelled." : "Analysis timed out. Try a smaller folder.");
+        }
+        juce::Thread::sleep(30);
+    }
+    auto response = juce::JSON::parse(process.readAllProcessOutput());
+    if (process.getExitCode() != 0 || !bool(response["ok"]))
+    {
+        auto error = response["error"].toString();
+        throw std::runtime_error((error.isEmpty() ? "Custom dataset analysis failed." : error).toStdString());
+    }
+    DatasetAnalysis result;
+    result.filesFound = int(response["files_found"]);
+    result.filesAnalyzed = int(response["files_analyzed"]);
+    result.filesFailed = int(response["files_failed"]);
+    result.patterns = int(response["patterns"]);
+    result.profile = profile;
+    if (!profile.existsAsFile()) throw std::runtime_error("Custom profile was not saved.");
+    return result;
+}
+
+void DatasetAnalysisWorker::run()
+{
+    DatasetAnalysis result;
+    juce::String error;
+    try { result = engine.analyzeDataset(folder, profile, [this] { return threadShouldExit(); }); }
+    catch (const std::exception& e) { error = juce::String::fromUTF8(e.what()); }
+    if (!threadShouldExit())
+        juce::MessageManager::callAsync([callback = complete, result = std::move(result), error]() mutable {
+            callback(std::move(result), error);
         });
 }

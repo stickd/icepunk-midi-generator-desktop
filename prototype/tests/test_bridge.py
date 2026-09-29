@@ -42,6 +42,22 @@ class BridgeTests(unittest.TestCase):
                         self.assertAlmostEqual(tempo2bpm(msg.tempo), clip['bpm'], places=2)
                 self.assertEqual(tick, mid.ticks_per_beat * 16)
 
+    def test_custom_dataset_profile_can_be_analyzed_and_generated(self):
+        profile = self.folder / 'custom' / 'profile.json'
+        result = bridge.analyze_custom_dataset(ROOT / 'midi_dataset', profile)
+        self.assertTrue(profile.is_file())
+        self.assertGreater(result['files_analyzed'], 0)
+        self.assertGreaterEqual(result['patterns'], 2)
+        custom = bridge.generate_batch(self.folder / 'custom-batch', analysis_file=profile)
+        self.assertEqual(len(custom['clips']), 5)
+        self.assertTrue(all(Path(clip['path']).is_file() for clip in custom['clips']))
+
+    def test_custom_dataset_rejects_folder_without_midi(self):
+        empty = self.folder / 'empty'
+        empty.mkdir()
+        with self.assertRaisesRegex(ValueError, 'No MIDI files'):
+            bridge.analyze_custom_dataset(empty, self.folder / 'profile.json')
+
     def test_bridge_matches_original_clipped_and_repeated_five_calls(self):
         g = bridge.load_generator()
         data = json.loads((ROOT / 'analysis_output/midi_analysis.json').read_text(encoding='utf-8'))

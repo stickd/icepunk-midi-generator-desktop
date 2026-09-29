@@ -4,7 +4,8 @@
 
 class FailingEngine final : public GeneratorEngine
 {
-    GenerationBatch generate(juce::String, std::function<bool()>) override { throw std::runtime_error("Simulated generation failure"); }
+    GenerationBatch generate(juce::String, juce::File, std::function<bool()>) override { throw std::runtime_error("Simulated generation failure"); }
+    DatasetAnalysis analyzeDataset(juce::File, juce::File, std::function<bool()>) override { throw std::runtime_error("Simulated analysis failure"); }
 };
 
 // Runs the real async UI/engine/parser path. No test notes are displayed as generated content.

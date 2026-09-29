@@ -1,8 +1,10 @@
 """Local five-variation bridge. Original generator and dataset stay untouched."""
 from __future__ import annotations
 import argparse
+import contextlib
 from dataclasses import replace
 import importlib.util
+import io
 import json
 import logging
 from logging.handlers import RotatingFileHandler
@@ -43,6 +45,18 @@ def load_generator():
     if name in sys.modules:
         return sys.modules[name]
     spec = importlib.util.spec_from_file_location(name, PROJECT_ROOT / "icepunk_midi_generator.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def load_analyzer():
+    """Load the existing analyzer without changing its factory-dataset entry point."""
+    name = "icepunk_midi_analyzer"
+    if name in sys.modules:
+        return sys.modules[name]
+    spec = importlib.util.spec_from_file_location(name, PROJECT_ROOT / "icepunk_midi_analyzer.py")
     module = importlib.util.module_from_spec(spec)
     sys.modules[name] = module
     spec.loader.exec_module(module)
@@ -133,9 +147,50 @@ def generate_batch(output_dir: Path, analysis_file: Path | None = None, target_k
     return {"version": 1, "ok": True, "clips": clips}
 
 
+def analyze_custom_dataset(dataset_dir: Path, profile_file: Path) -> dict:
+    """Create a generator-compatible local profile from a user-owned MIDI folder.
+
+    The source MIDI files are only read; the resulting profile is an independent
+    snapshot that is safe to use even when the source folder is later moved.
+    """
+    dataset_dir = dataset_dir.expanduser().resolve()
+    if not dataset_dir.is_dir():
+        raise ValueError("Choose a folder containing MIDI files.")
+    analyzer = load_analyzer()
+    # The original analyzer reports per-file progress to stdout. The bridge
+    # protocol reserves stdout for one JSON response, so retain its output in
+    # the application log instead.
+    progress = io.StringIO()
+    with contextlib.redirect_stdout(progress):
+        analysis = analyzer.analyze_dataset(dataset_dir)
+    engine_logger().info("Custom dataset analysis:\n%s", progress.getvalue()[:16384])
+    summary = analysis.get("dataset_summary")
+    if not summary:
+        raise ValueError(analysis.get("error", "No MIDI files could be analyzed."))
+    patterns = int(summary.get("total_extracted_patterns") or 0)
+    files = int(summary.get("total_files_analyzed") or 0)
+    if files == 0 or patterns < 2:
+        raise ValueError("The folder needs at least two MIDI patterns with notes.")
+    profile_file = profile_file.expanduser().resolve()
+    profile_file.parent.mkdir(parents=True, exist_ok=True)
+    temporary = profile_file.with_suffix(profile_file.suffix + ".tmp")
+    temporary.write_text(json.dumps(analysis, ensure_ascii=False, indent=2), encoding="utf-8")
+    temporary.replace(profile_file)
+    manifest = profile_file.with_name("manifest.json")
+    manifest.write_text(json.dumps({"version": 1, "source_folder": str(dataset_dir),
+                                    "files_analyzed": files, "patterns": patterns}, indent=2), encoding="utf-8")
+    return {"version": 1, "ok": True, "profile": str(profile_file),
+            "files_found": int(summary.get("total_files_found") or 0),
+            "files_analyzed": files, "files_failed": int(summary.get("total_failed") or 0),
+            "patterns": patterns}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="ICEPUNK five-variation local bridge")
     parser.add_argument("--output-dir", type=Path)
+    parser.add_argument("--analysis-file", type=Path, help="Custom analyzed dataset profile")
+    parser.add_argument("--analyze-dir", type=Path, help="Folder of user MIDI files to analyze")
+    parser.add_argument("--profile-file", type=Path, help="Where to save an analyzed custom profile")
     parser.add_argument("--target-key", help="Optional forced key, for example 'F# minor'")
     parser.add_argument("--diagnostics", action='store_true')
     args = parser.parse_args()
@@ -148,19 +203,27 @@ def main() -> int:
                           'generator_sha256': hashlib.sha256((PROJECT_ROOT / 'icepunk_midi_generator.py').read_bytes()).hexdigest(),
                           'dataset_sha256': hashlib.sha256((PROJECT_ROOT / 'analysis_output/midi_analysis.json').read_bytes()).hexdigest()}))
         return 0
-    if args.output_dir is None:
+    analyzing = args.analyze_dir is not None or args.profile_file is not None
+    if analyzing and (args.analyze_dir is None or args.profile_file is None):
+        parser.error('--analyze-dir and --profile-file must be used together')
+    if not analyzing and args.output_dir is None:
         parser.error('--output-dir is required unless --diagnostics is used')
     try:
-        engine_logger().info('Generation started (frozen=%s)', bool(getattr(sys, 'frozen', False)))
-        result = generate_batch(args.output_dir, target_key=args.target_key)
-        engine_logger().info('Generation completed: five files')
+        if analyzing:
+            engine_logger().info('Custom dataset analysis started (frozen=%s)', bool(getattr(sys, 'frozen', False)))
+            result = analyze_custom_dataset(args.analyze_dir, args.profile_file)
+            engine_logger().info('Custom dataset analysis completed')
+        else:
+            engine_logger().info('Generation started (frozen=%s)', bool(getattr(sys, 'frozen', False)))
+            result = generate_batch(args.output_dir, analysis_file=args.analysis_file, target_key=args.target_key)
+            engine_logger().info('Generation completed: five files')
     except Exception as exc:
         try:
             engine_logger().exception('Generation failed')
         except OSError:
             pass
-        print(json.dumps({"version": 1, "ok": False,
-                          "error": "Generation failed. Please retry. Details are in the application logs."}, ensure_ascii=True))
+        print(json.dumps({"version": 1, "ok": False, "error": str(exc) or
+                          "Operation failed. Please retry. Details are in the application logs."}, ensure_ascii=True))
         return 1
     print(json.dumps(result, ensure_ascii=True))
     return 0

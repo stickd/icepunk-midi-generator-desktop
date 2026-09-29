@@ -8,6 +8,7 @@ a = Analysis(
     pathex=[str(root / 'prototype/bridge')],
     binaries=[],
     datas=[(str(root / 'icepunk_midi_generator.py'), 'resources'),
+           (str(root / 'icepunk_midi_analyzer.py'), 'resources'),
            (str(root / 'analysis_output/midi_analysis.json'), 'resources/analysis_output')],
     hiddenimports=['mido'],
     hookspath=[], runtime_hooks=[],
