@@ -1,0 +1,2 @@
+#pragma once
+#define ICEPUNK_VERSION "@PROJECT_VERSION@"

@@ -1,0 +1,21 @@
+.release-tools/
+.release-tools-macos/
+.release-build/
+dist/
+app/
+**/__pycache__/
+*.pyc
+prototype/build/
+generated_midi/
+
+# Local environments and credentials
+.venv/
+venv/
+.env
+.env.*
+!.env.example
+*.pfx
+*.p12
+*.key
+.DS_Store
+Thumbs.db
