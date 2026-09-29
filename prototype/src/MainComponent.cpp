@@ -45,6 +45,9 @@ MainComponent::MainComponent(juce::File project) : projectRoot(std::move(project
     scaleChoice.setTooltip("Choose the scale used when you choose a key.");
     addAndMakeVisible(scaleChoice);
     updateScaleChoice();
+    configureLiveControl(mutation, "MUTATION", 0.0);
+    configureLiveControl(variation, "VARIATION", 50.0);
+    configureLiveControl(density, "DENSITY", 100.0);
     for (int i = 0; i < 5; ++i)
     {
         rows[i] = std::make_unique<MidiPreview>(i + 1);
@@ -61,7 +64,7 @@ MainComponent::MainComponent(juce::File project) : projectRoot(std::move(project
     addAndMakeVisible(status);
     setStatus(result.failed() ? "Cannot create output folder: " + result.getErrorMessage()
                             : "Press Generate. Find your next idea.", result.failed());
-    setSize(840, 650);
+    setSize(840, 760);
 }
 
 MainComponent::~MainComponent()
@@ -78,6 +81,14 @@ MainComponent::~MainComponent()
 void MainComponent::setEngineForTest(std::unique_ptr<GeneratorEngine> replacement)
 {
     jassert(!busy); worker.reset(); engine = std::move(replacement);
+}
+
+void MainComponent::setLiveControlsForTest(float newMutation, float newVariation, float newDensity)
+{
+    mutation.setValue(newMutation * 100.0, juce::dontSendNotification);
+    variation.setValue(newVariation * 100.0, juce::dontSendNotification);
+    density.setValue(newDensity * 100.0, juce::dontSendNotification);
+    applyLiveControls();
 }
 
 void MainComponent::setStatus(juce::String text, bool error)
@@ -118,9 +129,36 @@ void MainComponent::finish(GenerationBatch batch, juce::String error)
     removeOwnedBatch(previousFolder, sessionRoot);
     previousFolder = current.folder;
     current = std::move(batch);
+    mutation.setValue(0.0, juce::dontSendNotification);
+    variation.setValue(50.0, juce::dontSendNotification);
+    density.setValue(100.0, juce::dontSendNotification);
     for (int i = 0; i < 5; ++i) rows[i]->setClip(current.clips[size_t(i)]);
     setStatus("Five new ideas. Drag a pattern into your DAW, or export it.");
     repaint();
+}
+
+void MainComponent::configureLiveControl(juce::Slider& control, juce::String name, double initial)
+{
+    control.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+    control.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 62, 16);
+    control.setRange(0.0, 100.0, 1.0); control.setValue(initial);
+    control.setTextValueSuffix("%");
+    control.setName(name); control.setTooltip(name + ": update the generated MIDI in real time.");
+    control.onValueChange = [this] { applyLiveControls(); };
+    addAndMakeVisible(control);
+}
+
+void MainComponent::applyLiveControls()
+{
+    if (busy || current.clips.empty()) return;
+    try
+    {
+        ::applyLiveControls(current, { float(mutation.getValue() / 100.0), float(variation.getValue() / 100.0),
+                                        float(density.getValue() / 100.0) });
+        for (int i = 0; i < 5; ++i) rows[i]->setClip(current.clips[size_t(i)]);
+        setStatus("Live controls update the five MIDI patterns. Return a control to its old value to restore that state.");
+    }
+    catch (const std::exception& error) { setStatus(error.what(), true); }
 }
 
 void MainComponent::exportMidi(const juce::File& source)
@@ -151,7 +189,11 @@ void MainComponent::resized()
     generateButton.setBounds(getWidth() - margin - 210, 47, 210, 46);
     keyChoice.setBounds(margin, 117, 155, 28);
     scaleChoice.setBounds(margin + 165, 117, 120, 28);
-    const int top = 174, gap = 10;
+    const int controlsY = 181;
+    mutation.setBounds(margin, controlsY, 100, 78);
+    variation.setBounds(margin + 116, controlsY, 100, 78);
+    density.setBounds(margin + 232, controlsY, 100, 78);
+    const int top = 266, gap = 10;
     const int rowHeight = (getHeight() - top - 46 - 4 * gap) / 5;
     for (int i = 0; i < 5; ++i) rows[i]->setBounds(margin, top + i * (rowHeight + gap), getWidth() - margin * 2, rowHeight);
     status.setBounds(margin - 3, getHeight() - 36, getWidth() - 2 * margin + 6, 22);
@@ -177,13 +219,20 @@ void MainComponent::paint(juce::Graphics& g)
     g.fillRect(getLocalBounds());
     g.setColour(Ice::muted); g.setFont(Ice::font(9, true));
     g.drawText("KEY / SCALE", 32, 103, 160, 12, juce::Justification::left);
-    g.setColour(Ice::line); g.drawHorizontalLine(155, 32, float(getWidth() - 32));
-    g.setColour(Ice::blue); g.fillRect(32, 155, 36, 1);
+    g.setColour(Ice::muted); g.setFont(Ice::font(9, true));
+    g.drawText("LIVE CONTROLS", 32, 158, 160, 12, juce::Justification::left);
+    for (auto* control : { &mutation, &variation, &density })
+    {
+        g.setColour(Ice::muted); g.setFont(Ice::font(8, true));
+        g.drawText(control->getName(), control->getX(), 170, control->getWidth(), 12, juce::Justification::centred);
+    }
+    g.setColour(Ice::line); g.drawHorizontalLine(252, 32, float(getWidth() - 32));
+    g.setColour(Ice::blue); g.fillRect(32, 252, 36, 1);
     auto word = Ice::font(32, true); word.setExtraKerningFactor(0.14f); g.setFont(word);
     g.setColour(Ice::white); g.drawText("ICEPUNK", 31, 37, 320, 42, juce::Justification::left);
     g.setFont(Ice::font(10)); g.setColour(Ice::muted);
     g.drawText("M I D I   G E N E R A T O R", 34, 83, 300, 17, juce::Justification::left);
     g.setFont(Ice::font(9));
-    g.drawText("FIVE VARIATIONS", 33, 128, 180, 15, juce::Justification::left);
-    g.drawText("DRAG TO YOUR DAW", getWidth() - 225, 128, 192, 15, juce::Justification::right);
+    g.drawText("FIVE VARIATIONS", 33, 225, 180, 15, juce::Justification::left);
+    g.drawText("DRAG TO YOUR DAW", getWidth() - 225, 225, 192, 15, juce::Justification::right);
 }

@@ -1,12 +1,23 @@
 #pragma once
 #include <JuceHeader.h>
 #include <functional>
+#include <cstdint>
 #include <vector>
 
 struct PreviewNote { int pitch; float start; float duration; int velocity; };
-struct GeneratedClip { juce::File file; std::vector<PreviewNote> notes; juce::String key; double beats = 0; };
+struct LiveControls { float mutation = 0.0f, variation = 0.5f, density = 1.0f; };
+struct GeneratedClip
+{
+    juce::File file;
+    std::vector<PreviewNote> notes, baseNotes;
+    juce::MemoryBlock baseFileData;
+    juce::String key;
+    double bpm = 146.0, beats = 0.0;
+    uint32_t seed = 0;
+};
 struct GenerationBatch { juce::File folder; std::vector<GeneratedClip> clips; };
 GeneratedClip parseMidi(const juce::File&);
+void applyLiveControls(GenerationBatch&, LiveControls);
 void removeOwnedBatch(const juce::File& batch, const juce::File& session);
 
 // Replace this interface with a native engine later; the UI need not change.

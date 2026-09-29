@@ -65,6 +65,11 @@ private:
                 case 4:
                 {
                     verify();
+                    const auto original = fingerprint(component.getBatch());
+                    component.setLiveControlsForTest(0.85f, 0.8f, 0.55f);
+                    verify(); require(original != fingerprint(component.getBatch()), "Live controls did not change MIDI");
+                    component.setLiveControlsForTest(0.0f, 0.5f, 1.0f);
+                    verify(); require(original == fingerprint(component.getBatch()), "Live controls did not restore MIDI");
                     for (int i = 0; i < 5; ++i)
                     {
                         auto target = destination.getChildFile("ICEPUNK_test_0" + juce::String(i + 1) + ".mid");
@@ -77,7 +82,7 @@ private:
                     juce::PNGImageFormat png; png.writeImageToStream(screenshot, *stream); stream.reset();
                     destination.getChildFile("native-smoke-test.txt").replaceWithText(
                         "PASS: three real five-file batches; native preview parser; 16 beats each; different repeated batches; "
-                        "simulated failure preserves previous five files; recovery; export of each file; maximum two retained batches.\n");
+                        "simulated failure preserves previous five files; recovery; deterministic live controls; export of each file; maximum two retained batches.\n");
                     stopTimer(); juce::JUCEApplication::getInstance()->setApplicationReturnValue(0); juce::JUCEApplication::quit();
                     break;
                 }

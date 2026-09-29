@@ -23,6 +23,7 @@ public:
     juce::File getSessionRoot() const { return sessionRoot; }
     // Test seam: exercise the same UI failure path without changing the real generator.
     void setEngineForTest(std::unique_ptr<GeneratorEngine> replacement);
+    void setLiveControlsForTest(float mutation, float variation, float density);
 private:
     void timerCallback() override;
     void finish(GenerationBatch, juce::String);
@@ -35,6 +36,7 @@ private:
     std::unique_ptr<juce::FileChooser> chooser;
     juce::TextButton generateButton { "GENERATE" };
     juce::ComboBox keyChoice, scaleChoice;
+    juce::Slider mutation, variation, density;
     std::array<std::unique_ptr<MidiPreview>, 5> rows;
     juce::Label status;
     juce::TooltipWindow tips { this, 700 };
@@ -45,4 +47,6 @@ private:
     int pulse = 0;
     juce::String selectedTargetKey() const;
     void updateScaleChoice();
+    void applyLiveControls();
+    void configureLiveControl(juce::Slider&, juce::String name, double initial);
 };
