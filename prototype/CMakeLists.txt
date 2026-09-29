@@ -13,7 +13,9 @@ FetchContent_Declare(JUCE
     GIT_TAG 91ad83ae34a81e0833b1a2b0866f54846370ae53)
 FetchContent_MakeAvailable(JUCE)
 juce_add_gui_app(ICEPUNK PRODUCT_NAME "ICEPUNK" COMPANY_NAME "ICEPUNK"
-    BUNDLE_ID "audio.icepunk.midigenerator" VERSION ${PROJECT_VERSION})
+    BUNDLE_ID "audio.icepunk.midigenerator" VERSION ${PROJECT_VERSION}
+    ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/../assets/icepunk-snowflake.png"
+    ICON_SMALL "${CMAKE_CURRENT_SOURCE_DIR}/../assets/icepunk-snowflake.png")
 juce_generate_juce_header(ICEPUNK)
 if(ICEPUNK_DEVELOPMENT_ENGINE)
     set_target_properties(ICEPUNK PROPERTIES RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_CURRENT_SOURCE_DIR}/../app")

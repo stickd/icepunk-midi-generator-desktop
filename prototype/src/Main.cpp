@@ -104,7 +104,9 @@ public:
         : DocumentWindow("ICEPUNK", Ice::background, DocumentWindow::minimiseButton | DocumentWindow::closeButton)
     {
         setUsingNativeTitleBar(true); setContentOwned(content, true);
-        setResizable(false, false); centreWithSize(getWidth(), getHeight()); setVisible(true);
+        setResizable(true, true);
+        setResizeLimits(780, 820, 1800, 1600);
+        centreWithSize(getWidth(), getHeight()); setVisible(true);
     }
     void closeButtonPressed() override { juce::JUCEApplication::getInstance()->systemRequestedQuit(); }
 };

@@ -40,7 +40,10 @@ void MidiPreview::paint(juce::Graphics& g)
     if (clip.key.isNotEmpty())
     {
         g.setColour(Ice::blue.withAlpha(0.85f)); g.setFont(Ice::font(9, true));
-        g.drawText(clip.key.toUpperCase(), 17, getHeight() - 27, 58, 13, juce::Justification::centredLeft);
+        // At the minimum window height a row is short enough that anchoring
+        // this label to its bottom would overlap the two-digit MIDI number.
+        const int keyY = juce::jmax(60, getHeight() - 23);
+        g.drawText(clip.key.toUpperCase(), 17, keyY, 58, 13, juce::Justification::centredLeft);
     }
 
     juce::Rectangle<float> roll(80, 10, float(getWidth() - 164), float(getHeight() - 20));
