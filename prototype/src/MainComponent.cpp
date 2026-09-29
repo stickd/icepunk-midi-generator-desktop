@@ -198,7 +198,7 @@ void MainComponent::resized()
     mutation.setBounds(margin, controlsY, 100, 78);
     variation.setBounds(margin + 116, controlsY, 100, 78);
     density.setBounds(margin + 232, controlsY, 100, 78);
-    const int top = 290, gap = 10;
+    const int top = 312, gap = 10;
     const int rowHeight = (getHeight() - top - 46 - 4 * gap) / 5;
     for (int i = 0; i < 5; ++i) rows[i]->setBounds(margin, top + i * (rowHeight + gap), getWidth() - margin * 2, rowHeight);
     status.setBounds(margin - 3, getHeight() - 36, getWidth() - 2 * margin + 6, 22);
@@ -238,6 +238,6 @@ void MainComponent::paint(juce::Graphics& g)
     g.setFont(Ice::font(10)); g.setColour(Ice::muted);
     g.drawText("M I D I   G E N E R A T O R", 34, 83, 300, 17, juce::Justification::left);
     g.setFont(Ice::font(9));
-    g.drawText("FIVE VARIATIONS", 33, 249, 180, 15, juce::Justification::left);
-    g.drawText("DRAG TO YOUR DAW", getWidth() - 225, 249, 192, 15, juce::Justification::right);
+    g.drawText("FIVE VARIATIONS", 33, 286, 180, 15, juce::Justification::left);
+    g.drawText("DRAG TO YOUR DAW", getWidth() - 225, 286, 192, 15, juce::Justification::right);
 }
