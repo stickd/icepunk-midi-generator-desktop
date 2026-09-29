@@ -64,7 +64,7 @@ MainComponent::MainComponent(juce::File project) : projectRoot(std::move(project
     addAndMakeVisible(status);
     setStatus(result.failed() ? "Cannot create output folder: " + result.getErrorMessage()
                             : "Press Generate. Find your next idea.", result.failed());
-    setSize(840, 760);
+    setSize(840, 790);
 }
 
 MainComponent::~MainComponent()
@@ -143,6 +143,11 @@ void MainComponent::configureLiveControl(juce::Slider& control, juce::String nam
     control.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 62, 16);
     control.setRange(0.0, 100.0, 1.0); control.setValue(initial);
     control.setTextValueSuffix("%");
+    control.setColour(juce::Slider::rotarySliderFillColourId, Ice::blue);
+    control.setColour(juce::Slider::rotarySliderOutlineColourId, Ice::line);
+    control.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
+    control.setColour(juce::Slider::textBoxBackgroundColourId, juce::Colours::transparentBlack);
+    control.setColour(juce::Slider::textBoxTextColourId, Ice::white);
     control.setName(name); control.setTooltip(name + ": update the generated MIDI in real time.");
     control.onValueChange = [this] { applyLiveControls(); };
     addAndMakeVisible(control);
@@ -193,7 +198,7 @@ void MainComponent::resized()
     mutation.setBounds(margin, controlsY, 100, 78);
     variation.setBounds(margin + 116, controlsY, 100, 78);
     density.setBounds(margin + 232, controlsY, 100, 78);
-    const int top = 266, gap = 10;
+    const int top = 290, gap = 10;
     const int rowHeight = (getHeight() - top - 46 - 4 * gap) / 5;
     for (int i = 0; i < 5; ++i) rows[i]->setBounds(margin, top + i * (rowHeight + gap), getWidth() - margin * 2, rowHeight);
     status.setBounds(margin - 3, getHeight() - 36, getWidth() - 2 * margin + 6, 22);
@@ -226,13 +231,13 @@ void MainComponent::paint(juce::Graphics& g)
         g.setColour(Ice::muted); g.setFont(Ice::font(8, true));
         g.drawText(control->getName(), control->getX(), 170, control->getWidth(), 12, juce::Justification::centred);
     }
-    g.setColour(Ice::line); g.drawHorizontalLine(252, 32, float(getWidth() - 32));
-    g.setColour(Ice::blue); g.fillRect(32, 252, 36, 1);
+    g.setColour(Ice::line); g.drawHorizontalLine(276, 32, float(getWidth() - 32));
+    g.setColour(Ice::blue); g.fillRect(32, 276, 36, 1);
     auto word = Ice::font(32, true); word.setExtraKerningFactor(0.14f); g.setFont(word);
     g.setColour(Ice::white); g.drawText("ICEPUNK", 31, 37, 320, 42, juce::Justification::left);
     g.setFont(Ice::font(10)); g.setColour(Ice::muted);
     g.drawText("M I D I   G E N E R A T O R", 34, 83, 300, 17, juce::Justification::left);
     g.setFont(Ice::font(9));
-    g.drawText("FIVE VARIATIONS", 33, 225, 180, 15, juce::Justification::left);
-    g.drawText("DRAG TO YOUR DAW", getWidth() - 225, 225, 192, 15, juce::Justification::right);
+    g.drawText("FIVE VARIATIONS", 33, 249, 180, 15, juce::Justification::left);
+    g.drawText("DRAG TO YOUR DAW", getWidth() - 225, 249, 192, 15, juce::Justification::right);
 }
