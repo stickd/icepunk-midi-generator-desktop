@@ -9,7 +9,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from mido import MidiFile, tempo2bpm
+from mido import Message, MidiFile, MidiTrack, tempo2bpm
 
 ROOT = Path(__file__).resolve().parents[2]
 BRIDGE = ROOT / 'prototype/bridge/generate.py'
@@ -57,6 +57,19 @@ class BridgeTests(unittest.TestCase):
         empty.mkdir()
         with self.assertRaisesRegex(ValueError, 'No MIDI files'):
             bridge.analyze_custom_dataset(empty, self.folder / 'profile.json')
+
+    def test_custom_dataset_rejects_phrases_the_generator_cannot_use(self):
+        dataset = self.folder / 'one-note-files'
+        dataset.mkdir()
+        for index in range(2):
+            midi = MidiFile(ticks_per_beat=480)
+            track = MidiTrack()
+            midi.tracks.append(track)
+            track.append(Message('note_on', note=60 + index, velocity=90, time=0))
+            track.append(Message('note_off', note=60 + index, velocity=0, time=480))
+            midi.save(dataset / f'one-note-{index}.mid')
+        with self.assertRaisesRegex(ValueError, 'No usable MIDI phrases'):
+            bridge.analyze_custom_dataset(dataset, self.folder / 'profile.json')
 
     def test_bridge_matches_original_clipped_and_repeated_five_calls(self):
         g = bridge.load_generator()

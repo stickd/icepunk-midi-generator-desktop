@@ -80,6 +80,13 @@ def main():
             hashes.append([hashlib.sha256(Path(c['path']).read_bytes()).hexdigest() for c in result['clips']])
             assert len(set(hashes[-1])) == 5
         assert hashes[0] != hashes[1]
+        profile = base / 'custom-profile' / 'profile.json'
+        custom = run_engine('--analyze-dir', base / 'batch-0', '--profile-file', profile)
+        assert custom['ok'] and custom['files_analyzed'] == 5
+        result = run_engine('--output-dir', base / 'custom-batch', '--analysis-file', profile)
+        assert result['ok'] and len(result['clips']) == 5
+        for clip in result['clips']:
+            verify_midi(Path(clip['path']))
         failure = run_engine('--output-dir', base / 'batch-0', expected=1)
         assert not failure['ok'] and 'Traceback' not in failure['error']
         assert hashes[0] == [hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted((base/'batch-0').glob('*.mid'))]
@@ -104,7 +111,7 @@ def main():
                    'system_python_disabled': True, 'engine_batches': 3, 'files_per_batch': 5,
                    'all_midis_16_beats': True, 'two_halves_identical': True, 'native_gui': native.strip(),
                    'logs_written': True, 'session_cleanup': True, 'install_tree_unchanged': True,
-                   'clean_vm_tested': False}
+                   'custom_dataset_analyze_and_generate': True, 'clean_vm_tested': False}
         args.report.write_text(json.dumps(summary, indent=2), encoding='utf-8')
         shutil.copyfile(gui_report / 'ICEPUNK-preview.png', args.report.with_suffix('.png'))
         print(json.dumps(summary, indent=2))

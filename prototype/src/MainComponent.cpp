@@ -160,8 +160,8 @@ void MainComponent::chooseCustomFolder()
             if (folder.isDirectory())
             {
                 safe->customFolderPath = folder;
-                safe->customFolder.setText("Selected: " + folder.getFullPathName(), juce::dontSendNotification);
-                safe->setStatus("Folder selected. Click Analyze to create a Custom MIDI profile.");
+                safe->customFolder.setText("Not analyzed: " + folder.getFullPathName(), juce::dontSendNotification);
+                safe->setStatus("Click Analyze to use this folder. Until then, Generate uses the previously saved profile.");
                 safe->analyzeButton.setEnabled(true);
             }
         });
@@ -217,9 +217,9 @@ void MainComponent::finish(GenerationBatch batch, juce::String error)
     removeOwnedBatch(previousFolder, sessionRoot);
     previousFolder = current.folder;
     current = std::move(batch);
-    mutation.setValue(0.0, juce::dontSendNotification);
-    variation.setValue(50.0, juce::dontSendNotification);
-    density.setValue(100.0, juce::dontSendNotification);
+    // Keep the user's controls across Generate and apply them to the new base phrase.
+    applyLiveControls();
+    flushLiveMidi();
     for (int i = 0; i < 5; ++i) rows[i]->setClip(current.clips[size_t(i)]);
     setStatus("Five new ideas. Drag a pattern into your DAW, or export it.");
     repaint();
@@ -237,7 +237,11 @@ void MainComponent::configureLiveControl(juce::Slider& control, juce::String nam
     control.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
     control.setColour(juce::Slider::textBoxBackgroundColourId, juce::Colours::transparentBlack);
     control.setColour(juce::Slider::textBoxTextColourId, Ice::white);
-    control.setName(name); control.setTooltip(name + ": update the generated MIDI in real time.");
+    control.setName(name);
+    control.setDoubleClickReturnValue(true, initial);
+    if (name == "MUTATION") control.setTooltip("How many notes change. 0% keeps original pitches and rhythm. Double-click to reset.");
+    else if (name == "VARIATION") control.setTooltip("Strength of Mutation: pitch, rhythm and velocity changes. Has no effect when Mutation is 0%. Double-click to reset.");
+    else control.setTooltip("Keep fewer notes: 100% is the original density, 0% keeps one note repeated every two bars. Double-click to reset.");
     control.onValueChange = [this] { applyLiveControls(); };
     addAndMakeVisible(control);
 }

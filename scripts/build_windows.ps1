@@ -36,7 +36,7 @@ if ($cmakeRoot -match '[^\x00-\x7F]') {
     $cmakeRoot = $fs.GetFolder($releaseRoot).ShortPath
     if ($cmakeRoot -match '[^\x00-\x7F]') { throw 'Build from an ASCII path or enable a short directory alias.' }
 }
-$cmakeBuild = Join-Path $cmakeRoot '.release-build\windows\cmake'
+$cmakeBuild = Join-Path $cmakeRoot '.release-build\windows\cmake-release-v2'
 $configArgs = @('-S',(Join-Path $cmakeRoot 'prototype'),'-B',$cmakeBuild,'-G','Visual Studio 17 2022','-A','x64',
     '-DICEPUNK_DEVELOPMENT_ENGINE=OFF')
 if ($JuceSource) { $configArgs += "-DFETCHCONTENT_SOURCE_DIR_JUCE=$JuceSource" }

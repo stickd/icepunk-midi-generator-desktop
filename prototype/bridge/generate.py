@@ -167,10 +167,13 @@ def analyze_custom_dataset(dataset_dir: Path, profile_file: Path) -> dict:
     summary = analysis.get("dataset_summary")
     if not summary:
         raise ValueError(analysis.get("error", "No MIDI files could be analyzed."))
-    patterns = int(summary.get("total_extracted_patterns") or 0)
     files = int(summary.get("total_files_analyzed") or 0)
-    if files == 0 or patterns < 2:
-        raise ValueError("The folder needs at least two MIDI patterns with notes.")
+    # Validate using the same eligibility rules as generation before replacing a profile.
+    try:
+        usable, _ = load_generator().load_patterns(analysis)
+    except ValueError as exc:
+        raise ValueError("No usable MIDI phrases. Include a two-bar phrase with 2 to 40 notes.") from exc
+    patterns = len(usable)
     profile_file = profile_file.expanduser().resolve()
     profile_file.parent.mkdir(parents=True, exist_ok=True)
     temporary = profile_file.with_suffix(profile_file.suffix + ".tmp")

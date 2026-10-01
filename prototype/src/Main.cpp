@@ -27,6 +27,29 @@ private:
         for (const auto& clip : batch.clips) { juce::MemoryBlock bytes; clip.file.loadFileAsData(bytes); data.append(bytes.getData(), bytes.getSize()); }
         return data.toBase64Encoding();
     }
+    bool hasRepeatedTwoBarPhrase(const GeneratedClip& clip)
+    {
+        struct Event { int start, duration, pitch, velocity; };
+        std::vector<Event> first, second;
+        for (const auto& note : clip.notes)
+        {
+            const int start = int(std::round(note.start * 480.0f));
+            const int duration = int(std::round(note.duration * 480.0f));
+            if (start < 3840) first.push_back({ start, duration, note.pitch, note.velocity });
+            else second.push_back({ start - 3840, duration, note.pitch, note.velocity });
+        }
+        auto order = [](const Event& a, const Event& b) {
+            if (a.start != b.start) return a.start < b.start;
+            if (a.pitch != b.pitch) return a.pitch < b.pitch;
+            return a.duration < b.duration;
+        };
+        std::sort(first.begin(), first.end(), order); std::sort(second.begin(), second.end(), order);
+        if (first.empty() || first.size() != second.size()) return false;
+        for (size_t i = 0; i < first.size(); ++i)
+            if (first[i].start != second[i].start || first[i].duration != second[i].duration
+                || first[i].pitch != second[i].pitch || first[i].velocity != second[i].velocity) return false;
+        return true;
+    }
     void verify()
     {
         require(component.getError().isEmpty(), component.getError().toRawUTF8());
@@ -37,6 +60,7 @@ private:
             auto parsed = parseMidi(clip.file);
             require(parsed.notes.size() == clip.notes.size(), "Preview note mismatch");
             require(parsed.beats == 16, "Wrong MIDI length");
+            require(hasRepeatedTwoBarPhrase(parsed), "Two-bar phrase does not repeat exactly");
         }
         require(component.getSessionRoot().findChildFiles(juce::File::findDirectories, false, "batch-*").size() <= 2,
                 "Unbounded batch accumulation");
@@ -83,7 +107,7 @@ private:
                     juce::PNGImageFormat png; png.writeImageToStream(screenshot, *stream); stream.reset();
                     destination.getChildFile("native-smoke-test.txt").replaceWithText(
                         "PASS: three real five-file batches; native preview parser; 16 beats each; different repeated batches; "
-                        "simulated failure preserves previous five files; recovery; deterministic live controls; export of each file; maximum two retained batches.\n");
+                        "simulated failure preserves previous five files; recovery; deterministic live controls; exact two-bar repeats after controls; export of each file; maximum two retained batches.\n");
                     stopTimer(); juce::JUCEApplication::getInstance()->setApplicationReturnValue(0); juce::JUCEApplication::quit();
                     break;
                 }

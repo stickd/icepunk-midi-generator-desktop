@@ -54,9 +54,10 @@ Windows GUI locates `engine/icepunk-engine.exe` relative to itself. macOS GUI lo
 its app bundle's `Contents/Resources/engine`. A release build has **no system-Python fallback**, no
 compiled developer interpreter path and no dependency on the Desktop checkout.
 
-Resources explicitly shipped: unchanged `icepunk_midi_generator.py`, the current analysis JSON, Python
-stdlib/native runtime, mido and its dependency. Analyzer, raw source MIDIs, tests, caches, `.git`, backups
-and generated files are not shipped. There are no separate visual assets/models required by this GUI.
+Resources explicitly shipped: `icepunk_midi_generator.py`, `icepunk_midi_analyzer.py`, the factory analysis
+JSON, Python stdlib/native runtime, mido and its dependency. Raw source MIDIs, tests, caches, `.git`,
+backups and generated files are not shipped. The snowflake icon is embedded in the GUI executable.
+Custom MIDI profiles are stored locally under the application's `custom-datasets` directory.
 
 Writable output and logs:
 

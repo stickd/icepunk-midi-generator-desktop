@@ -51,11 +51,14 @@ std::vector<PreviewNote> transformedNotes(const GeneratedClip& clip, LiveControl
     controls.mutation = juce::jlimit(0.0f, 1.0f, controls.mutation);
     controls.variation = juce::jlimit(0.0f, 1.0f, controls.variation);
     controls.density = juce::jlimit(0.0f, 1.0f, controls.density);
+    bool keptFirst = false;
     for (size_t i = 0; i < source.size(); ++i)
     {
         const auto& base = source[i];
-        // Keep the first event so even minimum density remains a playable phrase.
-        if (i != 0 && stableUnit(clip.seed, uint32_t(i), 11) > controls.density) continue;
+        if (base.start < 0.0f || base.start >= 8.0f || base.duration <= 0.0f) continue;
+        // Thin one two-bar phrase, then repeat it exactly. Keep at least one note.
+        if (keptFirst && stableUnit(clip.seed, uint32_t(i), 11) >= controls.density) continue;
+        keptFirst = true;
         auto note = base;
         if (stableUnit(clip.seed, uint32_t(i), 21) < controls.mutation)
         {
@@ -67,9 +70,9 @@ std::vector<PreviewNote> transformedNotes(const GeneratedClip& clip, LiveControl
         {
             const float direction = stableUnit(clip.seed, uint32_t(i), 32) < 0.5f ? -1.0f : 1.0f;
             const float shift = controls.variation < 0.5f ? 0.25f : 0.5f;
-            note.start = juce::jlimit(0.0f, 15.75f, base.start + direction * shift);
+            note.start = juce::jlimit(0.0f, 7.75f, base.start + direction * shift);
             note.start = std::round(note.start * 4.0f) / 4.0f;
-            note.duration = juce::jmin(base.duration, 16.0f - note.start);
+            note.duration = juce::jmin(base.duration, 8.0f - note.start);
         }
         if (stableUnit(clip.seed, uint32_t(i), 41) < controls.mutation)
         {
@@ -77,6 +80,12 @@ std::vector<PreviewNote> transformedNotes(const GeneratedClip& clip, LiveControl
             const int direction = stableUnit(clip.seed, uint32_t(i), 42) < 0.5f ? -1 : 1;
             note.velocity = juce::jlimit(35, 127, base.velocity + direction * amount);
         }
+        const int startTick = juce::jlimit(0, 3839, int(std::round(note.start * 480.0f)));
+        const int lengthTicks = juce::jlimit(1, 3840 - startTick, int(std::round(note.duration * 480.0f)));
+        note.start = float(startTick) / 480.0f;
+        note.duration = float(lengthTicks) / 480.0f;
+        result.push_back(note);
+        note.start += 8.0f;
         result.push_back(note);
     }
     std::sort(result.begin(), result.end(), [](const auto& a, const auto& b) {
