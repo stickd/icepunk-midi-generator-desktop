@@ -29,7 +29,10 @@ reset_owned() {
 }
 reset_owned "$WORK/engine-dist"
 "$PY" -m PyInstaller --clean --noconfirm --workpath "$WORK/pyinstaller" --distpath "$WORK/engine-dist" "$ROOT/engine/icepunk_engine.spec"
-CMAKE_ARGS=(-S "$ROOT/prototype" -B "$WORK/cmake" -DCMAKE_BUILD_TYPE=Release -DICEPUNK_DEVELOPMENT_ENGINE=OFF "-DCMAKE_OSX_ARCHITECTURES=$ARCH" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0)
+: "${ICEPUNK_LICENSE_ORIGIN:?Set HTTPS licensing origin}"
+: "${ICEPUNK_LICENSE_PUBLIC_KEY:?Set Ed25519 public key}"
+: "${ICEPUNK_TEST_LICENSE_FILE:?Set signed authorization file for this machine}"
+CMAKE_ARGS=("-DICEPUNK_LICENSE_ORIGIN=$ICEPUNK_LICENSE_ORIGIN" "-DICEPUNK_LICENSE_PUBLIC_KEY=$ICEPUNK_LICENSE_PUBLIC_KEY" -S "$ROOT/prototype" -B "$WORK/cmake" -DCMAKE_BUILD_TYPE=Release -DICEPUNK_DEVELOPMENT_ENGINE=OFF "-DCMAKE_OSX_ARCHITECTURES=$ARCH" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0)
 if [[ -n "${JUCE_SOURCE:-}" ]]; then CMAKE_ARGS+=("-DFETCHCONTENT_SOURCE_DIR_JUCE=$JUCE_SOURCE"); fi
 cmake "${CMAKE_ARGS[@]}"
 cmake --build "$WORK/cmake" --config Release --parallel 4
@@ -42,7 +45,7 @@ mkdir -p "$RESOURCES"
 JUCE_META="${JUCE_SOURCE:-$WORK/cmake/_deps/juce-src}"
 "$PY" "$ROOT/scripts/release_metadata.py" --stage "$RESOURCES" --juce "$JUCE_META"
 "$PY" -B -m unittest discover -s "$ROOT/prototype/tests" -v
-"$PY" "$ROOT/scripts/test_packaged.py" --stage "$STAGE" --report "$WORK/packaged-test.json"
+"$PY" "$ROOT/scripts/test_packaged.py" --stage "$STAGE" --report "$WORK/packaged-test.json" --license-file "$ICEPUNK_TEST_LICENSE_FILE"
 if [[ -n "${MAC_APPLICATION_IDENTITY:-}" ]]; then
     "$PY" "$ROOT/scripts/sign_macos.py" "$APP" --identity "$MAC_APPLICATION_IDENTITY"
 else

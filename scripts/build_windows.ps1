@@ -1,5 +1,7 @@
-param([string]$JuceSource = '', [string]$InnoCompiler = '', [string]$Vst3Path = '', [switch]$SkipTests)
+param([string]$JuceSource = '', [string]$InnoCompiler = '', [string]$Vst3Path = '', [switch]$SkipTests, [string]$LicenseOrigin = '', [string]$LicensePublicKey = '', [string]$LicenseFile = '')
 $ErrorActionPreference = 'Stop'
+if ($LicenseOrigin -notmatch '^https://[a-zA-Z0-9.-]+(:[0-9]+)?$' -or $LicensePublicKey -notmatch '^[0-9a-f]{64}$') { throw 'Supply -LicenseOrigin HTTPS origin and -LicensePublicKey Ed25519 public key.' }
+if (-not $SkipTests -and -not (Test-Path -LiteralPath $LicenseFile -PathType Leaf)) { throw 'Supply -LicenseFile with a valid signed authorization for this build machine to run packaged tests.' }
 $releaseRoot = Split-Path -Parent $PSScriptRoot
 $version = (Get-Content -LiteralPath (Join-Path $releaseRoot 'VERSION') -Raw).Trim()
 if ($version -notmatch '^\d+\.\d+\.\d+$') { throw 'VERSION must contain major.minor.patch' }
@@ -38,7 +40,7 @@ if ($cmakeRoot -match '[^\x00-\x7F]') {
 }
 $cmakeBuild = Join-Path $cmakeRoot '.release-build\windows\cmake-release-v2'
 $configArgs = @('-S',(Join-Path $cmakeRoot 'prototype'),'-B',$cmakeBuild,'-G','Visual Studio 17 2022','-A','x64',
-    '-DICEPUNK_DEVELOPMENT_ENGINE=OFF')
+    '-DICEPUNK_DEVELOPMENT_ENGINE=OFF',"-DICEPUNK_LICENSE_ORIGIN=$LicenseOrigin","-DICEPUNK_LICENSE_PUBLIC_KEY=$LicensePublicKey")
 if ($JuceSource) { $configArgs += "-DFETCHCONTENT_SOURCE_DIR_JUCE=$JuceSource" }
 Run-Checked 'cmake' $configArgs
 Run-Checked 'cmake' @('--build',$cmakeBuild,'--config','Release','--parallel','4')
@@ -62,7 +64,7 @@ Run-Checked $python @((Join-Path $releaseRoot 'scripts\release_metadata.py'),'--
 if (-not $SkipTests) {
     Run-Checked $python @('-B','-m','unittest','discover','-s',(Join-Path $releaseRoot 'prototype\tests'),'-v')
     Run-Checked $python @((Join-Path $releaseRoot 'scripts\test_packaged.py'),'--stage',$stage,
-        '--report',(Join-Path $work 'packaged-test.json'))
+        '--report',(Join-Path $work 'packaged-test.json'),'--license-file',$LicenseFile)
 }
 if ($env:ICEPUNK_SIGN_SCRIPT) {
     & $env:ICEPUNK_SIGN_SCRIPT $stage

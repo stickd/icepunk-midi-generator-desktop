@@ -37,6 +37,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--stage', type=Path, required=True)
     parser.add_argument('--report', type=Path, required=True)
+    parser.add_argument('--license-file', type=Path, required=True, help='Valid signed authorization for this machine and build public key')
     args = parser.parse_args()
     args.report.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='icepunk-release-') as temp:
@@ -90,6 +91,9 @@ def main():
         failure = run_engine('--output-dir', base / 'batch-0', expected=1)
         assert not failure['ok'] and 'Traceback' not in failure['error']
         assert hashes[0] == [hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted((base/'batch-0').glob('*.mid'))]
+        license_path = base / 'user-data/licensing/license.dat'
+        license_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(args.license_file, license_path)
         # Real JUCE Generate path, not just engine command-line execution.
         gui_report = base / 'gui-test'
         completed = subprocess.run([str(gui), '--self-test', str(gui_report)], env=env, cwd=base, timeout=120,

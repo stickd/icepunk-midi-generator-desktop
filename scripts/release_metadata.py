@@ -30,6 +30,7 @@ def main():
     if not juce_license.exists():
         raise SystemExit('JUCE license file not found')
     (notices / 'JUCE-LICENSE.md').write_bytes(juce_license.read_bytes())
+    (notices / 'Monocypher-LICENCE.md').write_bytes((root / 'prototype/vendor/monocypher/LICENCE.md').read_bytes())
     manifest = {
         'version': (root / 'VERSION').read_text().strip(),
         'platform': platform.system(), 'architecture': platform.machine(),

@@ -23,7 +23,11 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument('--installer', type=Path, required=True)
     p.add_argument('--report', type=Path, required=True)
+    p.add_argument('--license-file', type=Path, required=True,
+                   help='A valid signed authorization for this test machine; never copied into the installer')
     args = p.parse_args()
+    if not args.license_file.is_file():
+        raise SystemExit('A valid --license-file is required for the licensed GUI smoke test.')
     args.report.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='icepunk-install-test-') as temp:
         root = Path(temp).resolve()
@@ -48,6 +52,9 @@ def main():
             run(setup)
             assert (install / 'ICEPUNK.exe').is_file()
             assert (install / 'engine/icepunk-engine.exe').is_file()
+            assert not list(install.rglob('license.dat'))
+            (data / 'licensing').mkdir()
+            (data / 'licensing/license.dat').write_bytes(args.license_file.read_bytes())
             run([str(install / 'ICEPUNK.exe'), '--self-test', str(root / 'smoke')])
             assert (root / 'smoke/native-smoke-test.txt').read_text().startswith('PASS:')
             # Reinstall the same version to exercise Inno's upgrade/update path.

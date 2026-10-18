@@ -1,6 +1,7 @@
 #include "MainComponent.h"
 #include "RuntimePaths.h"
 #include "AppConfig.h"
+#include "ActivationComponent.h"
 
 class FailingEngine final : public GeneratorEngine
 {
@@ -124,12 +125,12 @@ private:
 class IceWindow final : public juce::DocumentWindow
 {
 public:
-    explicit IceWindow(MainComponent* content)
+    explicit IceWindow(juce::Component* content, bool licensed = true)
         : DocumentWindow("ICEPUNK", Ice::background, DocumentWindow::minimiseButton | DocumentWindow::closeButton)
     {
         setUsingNativeTitleBar(true); setContentOwned(content, true);
-        setResizable(true, true);
-        setResizeLimits(780, 820, 1800, 1600);
+        setResizable(licensed, licensed);
+        if (licensed) setResizeLimits(780, 820, 1800, 1600);
         centreWithSize(getWidth(), getHeight()); setVisible(true);
     }
     void closeButtonPressed() override { juce::JUCEApplication::getInstance()->systemRequestedQuit(); }
@@ -154,16 +155,22 @@ public:
         auto projectIndex = args.indexOf("--project");
         if (projectIndex >= 0 && projectIndex + 1 < args.size()) root = juce::File(args[projectIndex + 1]);
        #endif
-        auto* content = new MainComponent(root);
-        window = std::make_unique<IceWindow>(content);
-        auto testIndex = args.indexOf("--self-test");
-        if (testIndex >= 0 && testIndex + 1 < args.size())
-            smoke = std::make_unique<SmokeTest>(*content, root, juce::File(args[testIndex + 1]));
+        auto open = [this, root, args] {
+            if (!license.load()) return;
+            auto* content = new MainComponent(root);
+            window = std::make_unique<IceWindow>(content);
+            auto testIndex = args.indexOf("--self-test");
+            if (testIndex >= 0 && testIndex + 1 < args.size())
+                smoke = std::make_unique<SmokeTest>(*content, root, juce::File(args[testIndex + 1]));
+        };
+        if (license.load()) open();
+        else window = std::make_unique<IceWindow>(new ActivationComponent(license, open), false);
     }
     void shutdown() override { smoke.reset(); window.reset(); juce::Logger::setCurrentLogger(nullptr); logger.reset(); }
     void systemRequestedQuit() override { quit(); }
     void anotherInstanceStarted(const juce::String&) override { if (window) window->toFront(true); }
 private:
+    LicenseManager license;
     std::unique_ptr<IceWindow> window;
     std::unique_ptr<SmokeTest> smoke;
     std::unique_ptr<juce::FileLogger> logger;
