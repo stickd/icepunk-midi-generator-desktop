@@ -1,0 +1,10 @@
+# The Vercel project uses Root Directory web. Do not upload desktop builds or datasets.
+*
+!.vercelignore
+!web
+!web/**
+web/node_modules/
+web/.next/
+web/.vercel/
+web/.env*
+!web/.env.example
