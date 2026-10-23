@@ -3,3 +3,5 @@
 *.bat text eol=crlf
 *.mid binary
 *.midi binary
+
+analysis_output/midi_analysis.json text eol=lf
