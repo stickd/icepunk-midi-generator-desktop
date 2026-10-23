@@ -3,6 +3,11 @@
 MidiPreview::MidiPreview(int number) : index(number)
 {
     setTitle("MIDI " + juce::String(index));
+    reference.setTitle("Select MIDI " + juce::String(index) + " as reference");
+    reference.setTooltip("Select this pattern as a reference for Generate Similar.");
+    reference.onClick = [this] { if (onToggleReference) onToggleReference(); };
+    reference.setEnabled(false);
+    addAndMakeVisible(reference);
     setDescription("Drag this MIDI pattern to your DAW, or use Export.");
     exportButton.setTooltip("Save this MIDI file");
     exportButton.setTitle("Export MIDI " + juce::String(index));
@@ -17,12 +22,14 @@ void MidiPreview::setClip(const GeneratedClip& value)
 {
     clip = value;
     exportButton.setEnabled(clip.file.existsAsFile());
+    reference.setEnabled(clip.file.existsAsFile());
     setMouseCursor(juce::MouseCursor::DraggingHandCursor);
     repaint();
 }
 
 void MidiPreview::resized()
 {
+    reference.setBounds(6, getHeight() / 2 - 12, 24, 24);
     exportButton.setBounds(getWidth() - 71, getHeight() / 2 + 2, 60, 24);
 }
 
@@ -33,20 +40,20 @@ void MidiPreview::paint(juce::Graphics& g)
     g.setColour(hovered && !clip.notes.empty() ? Ice::blue.withAlpha(0.55f) : Ice::line);
     g.drawRoundedRectangle(bounds, 5, 1);
     g.setColour(Ice::muted); g.setFont(Ice::font(9, true));
-    g.drawText("MIDI", 19, 15, 46, 12, juce::Justification::centredLeft);
+    g.drawText("MIDI", 37, 15, 46, 12, juce::Justification::centredLeft);
     g.setColour(clip.notes.empty() ? Ice::muted : Ice::white);
     g.setFont(Ice::font(24));
-    g.drawText(juce::String(index).paddedLeft('0', 2), 18, 28, 48, 29, juce::Justification::centredLeft);
+    g.drawText(juce::String(index).paddedLeft('0', 2), 36, 28, 48, 29, juce::Justification::centredLeft);
     if (clip.key.isNotEmpty())
     {
         g.setColour(Ice::blue.withAlpha(0.85f)); g.setFont(Ice::font(9, true));
         // At the minimum window height a row is short enough that anchoring
         // this label to its bottom would overlap the two-digit MIDI number.
         const int keyY = juce::jmax(60, getHeight() - 23);
-        g.drawText(clip.key.toUpperCase(), 17, keyY, 58, 13, juce::Justification::centredLeft);
+        g.drawText(clip.key.toUpperCase(), 35, keyY, 58, 13, juce::Justification::centredLeft);
     }
 
-    juce::Rectangle<float> roll(80, 10, float(getWidth() - 164), float(getHeight() - 20));
+    juce::Rectangle<float> roll(100, 10, float(getWidth() - 184), float(getHeight() - 20));
     int low = 48, high = 84;
     if (!clip.notes.empty())
     {

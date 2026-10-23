@@ -27,21 +27,31 @@ int keyRoot(const juce::String& key)
 
 bool isMinor(const juce::String& key) { return key.endsWithIgnoreCase("minor"); }
 
-int nearestPitchInKey(int pitch, const juce::String& key)
+bool isPitchInKey(int pitch, const juce::String& key)
 {
-    const int root = keyRoot(key);
     const int minor[] = { 0, 2, 3, 5, 7, 8, 10 };
     const int major[] = { 0, 2, 4, 5, 7, 9, 11 };
     const int* scale = isMinor(key) ? minor : major;
-    pitch = juce::jlimit(36, 84, pitch);
-    for (int offset = 0; offset <= 12; ++offset)
-        for (int sign : { -1, 1 })
-        {
-            const int candidate = juce::jlimit(36, 84, pitch + sign * offset);
-            for (int scaleIndex = 0; scaleIndex < 7; ++scaleIndex)
-                if ((candidate - root + 120) % 12 == scale[scaleIndex]) return candidate;
-        }
-    return pitch;
+    const int degree = (pitch - keyRoot(key) + 120) % 12;
+    return std::find(scale, scale + 7, degree) != scale + 7;
+}
+
+int moveDiatonic(int pitch, int direction, int steps, const juce::String& key)
+{
+    // Keep bass, middle and high notes near their original register. Walking
+    // scale degrees avoids the wide chromatic jumps of the old control.
+    const int lower = juce::jmax(36, pitch - 7);
+    const int upper = juce::jmin(84, pitch + 7);
+    int result = pitch;
+    while (steps > 0)
+    {
+        int next = result + direction;
+        while (next >= lower && next <= upper && !isPitchInKey(next, key)) next += direction;
+        if (next < lower || next > upper) break;
+        result = next;
+        --steps;
+    }
+    return result;
 }
 
 std::vector<PreviewNote> transformedNotes(const GeneratedClip& clip, LiveControls controls)
@@ -51,6 +61,10 @@ std::vector<PreviewNote> transformedNotes(const GeneratedClip& clip, LiveControl
     controls.mutation = juce::jlimit(0.0f, 1.0f, controls.mutation);
     controls.variation = juce::jlimit(0.0f, 1.0f, controls.variation);
     controls.density = juce::jlimit(0.0f, 1.0f, controls.density);
+    float firstOnset = 8.0f;
+    for (const auto& note : source)
+        if (note.start >= 0.0f && note.start < 8.0f && note.duration > 0.0f)
+            firstOnset = juce::jmin(firstOnset, note.start);
     bool keptFirst = false;
     for (size_t i = 0; i < source.size(); ++i)
     {
@@ -60,23 +74,27 @@ std::vector<PreviewNote> transformedNotes(const GeneratedClip& clip, LiveControl
         if (keptFirst && stableUnit(clip.seed, uint32_t(i), 11) >= controls.density) continue;
         keptFirst = true;
         auto note = base;
-        if (stableUnit(clip.seed, uint32_t(i), 21) < controls.mutation)
+        // Notes sharing an onset use the same musical decision, keeping
+        // chords together. Seeds remain fixed while controls are adjusted.
+        const auto onset = uint32_t(juce::jmax(0, int(std::round(base.start * 480.0f))));
+        if (stableUnit(clip.seed, onset, 21) < controls.mutation)
         {
-            const int direction = stableUnit(clip.seed, uint32_t(i), 22) < 0.5f ? -1 : 1;
-            const int steps = 2 + int(controls.variation * 10.0f);
-            note.pitch = nearestPitchInKey(base.pitch + direction * steps, clip.key);
+            const int direction = stableUnit(clip.seed, onset, 22) < 0.5f ? -1 : 1;
+            const int maxSteps = 1 + int(controls.variation * 2.99f);
+            const int steps = 1 + int(stableUnit(clip.seed, onset, 23) * 0.9999f * maxSteps);
+            note.pitch = moveDiatonic(base.pitch, direction, steps, clip.key);
         }
-        if (stableUnit(clip.seed, uint32_t(i), 31) < controls.mutation * 0.7f)
+        if (std::abs(base.start - firstOnset) > 1.0f / 960.0f
+            && stableUnit(clip.seed, onset, 31) < controls.mutation * controls.variation * 0.45f)
         {
-            const float direction = stableUnit(clip.seed, uint32_t(i), 32) < 0.5f ? -1.0f : 1.0f;
-            const float shift = controls.variation < 0.5f ? 0.25f : 0.5f;
-            note.start = juce::jlimit(0.0f, 7.75f, base.start + direction * shift);
-            note.start = std::round(note.start * 4.0f) / 4.0f;
+            const float direction = stableUnit(clip.seed, onset, 32) < 0.5f ? -1.0f : 1.0f;
+            // Move at most one sixteenth; do not quantize unchanged source timing.
+            note.start = juce::jlimit(0.0f, 7.75f, base.start + direction * 0.25f);
             note.duration = juce::jmin(base.duration, 8.0f - note.start);
         }
-        if (stableUnit(clip.seed, uint32_t(i), 41) < controls.mutation)
+        if (stableUnit(clip.seed, onset, 41) < controls.mutation * 0.8f)
         {
-            const int amount = 5 + int(controls.variation * 30.0f);
+            const int amount = 2 + int(stableUnit(clip.seed, uint32_t(i), 43) * (3.0f + controls.variation * 9.0f));
             const int direction = stableUnit(clip.seed, uint32_t(i), 42) < 0.5f ? -1 : 1;
             note.velocity = juce::jlimit(35, 127, base.velocity + direction * amount);
         }
@@ -91,6 +109,13 @@ std::vector<PreviewNote> transformedNotes(const GeneratedClip& clip, LiveControl
     std::sort(result.begin(), result.end(), [](const auto& a, const auto& b) {
         return a.start == b.start ? a.pitch < b.pitch : a.start < b.start;
     });
+    // Similar variants must begin immediately even when a reference starts late
+    // or live mutation shifts its first attack. Move both repetitions equally.
+    if (clip.alignStart && !result.empty())
+    {
+        const float first = result.front().start;
+        for (auto& note : result) note.start -= first;
+    }
     return result;
 }
 
@@ -247,7 +272,7 @@ GenerationBatch PythonGeneratorEngine::generate(juce::String targetKey, juce::Fi
             clip.bpm = double((*clips)[i - 1]["bpm"]);
             clip.baseNotes = clip.notes;
             clip.file.loadFileAsData(clip.baseFileData);
-            clip.seed = 0x1ce00000U + uint32_t(i) * 0x9e3779b9U;
+            clip.seed = uint32_t(juce::Random::getSystemRandom().nextInt());
             batch.clips.push_back(std::move(clip));
         }
         return batch;
@@ -260,11 +285,83 @@ GenerationBatch PythonGeneratorEngine::generate(juce::String targetKey, juce::Fi
     }
 }
 
+GenerationBatch generateSimilarBatch(const GenerationBatch& source, const std::array<bool, 5>& selected,
+                                     LiveControls controls, const juce::File& session, std::function<bool()> cancelled)
+{
+    if (source.clips.size() != 5) throw std::runtime_error("Generate five patterns first.");
+    std::vector<int> references;
+    for (int i = 0; i < 5; ++i) if (selected[size_t(i)]) references.push_back(i);
+    if (references.empty() || references.size() > 3) throw std::runtime_error("Select one to three references.");
+    auto folder = session.getChildFile("batch-" + juce::Uuid().toString());
+    if (folder.createDirectory().failed()) throw std::runtime_error("Cannot create the output folder.");
+    GenerationBatch result {folder, {}};
+    try
+    {
+        int nextReference = 0;
+        for (int i = 0; i < 5; ++i)
+        {
+            if (cancelled()) throw std::runtime_error("Generation cancelled.");
+            const int ref = selected[size_t(i)] ? i : references[size_t(nextReference++ % int(references.size()))];
+            auto clip = source.clips[size_t(ref)];
+            auto destination = folder.getChildFile("midi_" + juce::String(i + 1) + ".mid");
+            if (selected[size_t(i)])
+            {
+                if (!clip.file.copyFileTo(destination)) throw std::runtime_error("Cannot preserve selected MIDI.");
+                clip.file = destination;
+            }
+            else
+            {
+                clip.file = destination;
+                clip.alignStart = true;
+                // Work from the actual selected notes, including any live edits.
+                clip.baseNotes = clip.notes;
+                clip.baseFileData.reset();
+                bool changed = false;
+                for (int attempt = 0; attempt < 24 && !changed; ++attempt)
+                {
+                    clip.seed = uint32_t(juce::Random::getSystemRandom().nextInt());
+                    LiveControls similarity {juce::jmax(0.45f, controls.mutation),
+                                             juce::jmax(0.25f, controls.variation), 1.0f};
+                    clip.notes = transformedNotes(clip, similarity);
+                    // Vary a few note lengths while respecting the two-bar seam;
+                    // apply the same change to both repetitions of the phrase.
+                    for (auto& n : clip.notes)
+                    {
+                        const float localStart = n.start >= 8.0f ? n.start - 8.0f : n.start;
+                        const auto onset = uint32_t(std::round(localStart * 480.0f));
+                        if (stableUnit(clip.seed, onset, 71) < similarity.mutation * similarity.variation * 0.3f)
+                        {
+                            const float factor = stableUnit(clip.seed, onset, 72) < 0.5f ? 0.75f : 1.25f;
+                            n.duration = std::round(juce::jmax(1.0f / 480.0f, juce::jmin(n.duration * factor, 8.0f - localStart)) * 480.0f) / 480.0f;
+                        }
+                    }
+                    // Ensure at least one pitch or onset differs, not just velocity.
+                    if (clip.notes.size() != clip.baseNotes.size()) changed = true;
+                    else for (size_t n = 0; n < clip.notes.size(); ++n)
+                        if (clip.notes[n].pitch != clip.baseNotes[n].pitch
+                            || std::abs(clip.notes[n].start - clip.baseNotes[n].start) > 0.001f)
+                        { changed = true; break; }
+                }
+                if (!changed) throw std::runtime_error("Could not create a different variation. Try another reference.");
+                if (!writeMidi(clip)) throw std::runtime_error("Could not save similar MIDI.");
+                auto checked = parseMidi(clip.file);
+                if (checked.notes.size() != clip.notes.size()) throw std::runtime_error("Invalid similar MIDI.");
+                clip.baseNotes = clip.notes;
+                if (!clip.file.loadFileAsData(clip.baseFileData)) throw std::runtime_error("Could not read similar MIDI.");
+            }
+            result.clips.push_back(std::move(clip));
+        }
+        return result;
+    }
+    catch (...) { removeOwnedBatch(folder, session); throw; }
+}
+
 void GenerationWorker::run()
 {
     GenerationBatch batch;
     juce::String error;
-    try { batch = engine.generate(target, profile, [this] { return threadShouldExit(); }); }
+    try { batch = similar ? generateSimilarBatch(references, selection, controls, sessionRoot, [this] { return threadShouldExit(); })
+                          : engine.generate(target, profile, [this] { return threadShouldExit(); }); }
     catch (const std::exception& e) { error = juce::String::fromUTF8(e.what()); }
     if (!threadShouldExit())
         juce::MessageManager::callAsync([callback = complete, batch = std::move(batch), error]() mutable {

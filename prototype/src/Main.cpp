@@ -87,6 +87,7 @@ private:
                     require(component.getBatch().folder == savedFolder && fingerprint(component.getBatch()) == firstHash,
                             "Failure destroyed previous MIDI");
                     component.setEngineForTest(std::make_unique<PythonGeneratorEngine>(project, component.getSessionRoot()));
+                    component.exercisePresetSelectionForTest();
                     component.generateNow(); break;
                 case 4:
                 {
@@ -108,7 +109,7 @@ private:
                     juce::PNGImageFormat png; png.writeImageToStream(screenshot, *stream); stream.reset();
                     destination.getChildFile("native-smoke-test.txt").replaceWithText(
                         "PASS: three real five-file batches; native preview parser; 16 beats each; different repeated batches; "
-                        "simulated failure preserves previous five files; recovery; deterministic live controls; exact two-bar repeats after controls; export of each file; maximum two retained batches.\n");
+                        "simulated failure preserves previous five files; recovery through loaded preset; invalid preset preserves selection; deleted preset snapshot still generates; deterministic live controls; exact two-bar repeats after controls; export of each file; maximum two retained batches.\n");
                     stopTimer(); juce::JUCEApplication::getInstance()->setApplicationReturnValue(0); juce::JUCEApplication::quit();
                     break;
                 }

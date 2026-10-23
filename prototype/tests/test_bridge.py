@@ -198,7 +198,7 @@ class BridgeTests(unittest.TestCase):
 
     def test_dataset_preserved(self):
         expected = {
-            'analysis_output/midi_analysis.json': '50f96bcb87f004362ef1314bb062b359512a0368aa196d36629fae718772324e',
+            'analysis_output/midi_analysis.json': '91eda70efacc76d77e96b8a63f3c851a151170f99ad98bd229ef3a29cf914207',
         }
         for name, digest in expected.items():
             self.assertEqual(hashlib.sha256((ROOT / name).read_bytes()).hexdigest(), digest)

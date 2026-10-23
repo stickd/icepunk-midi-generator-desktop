@@ -1,5 +1,6 @@
 #pragma once
 #include "MidiPreview.h"
+#include "PresetManager.h"
 #include <array>
 
 class IceLookAndFeel final : public juce::LookAndFeel_V4
@@ -23,10 +24,20 @@ public:
     juce::File getSessionRoot() const { return sessionRoot; }
     // Test seam: exercise the same UI failure path without changing the real generator.
     void setEngineForTest(std::unique_ptr<GeneratorEngine> replacement);
+    void exercisePresetSelectionForTest();
     void setLiveControlsForTest(float mutation, float variation, float density);
+    void setBatchForTest(GenerationBatch batch) { current = std::move(batch); }
+    void toggleReferenceForTest(int index) { toggleReference(index); }
+    void clearReferencesForTest() { clearReferences(); }
+    int referenceCountForTest() const { return referenceCount(); }
+    juce::String generateTextForTest() const { return generateButton.getButtonText(); }
 private:
     void timerCallback() override;
     void finish(GenerationBatch, juce::String);
+    void toggleReference(int index);
+    void clearReferences();
+    void updateReferenceUI();
+    int referenceCount() const;
     void exportMidi(const juce::File&);
     void setStatus(juce::String, bool error = false);
     IceLookAndFeel look;
@@ -35,9 +46,22 @@ private:
     std::unique_ptr<GenerationWorker> worker;
     std::unique_ptr<DatasetAnalysisWorker> analysisWorker;
     std::unique_ptr<juce::FileChooser> chooser;
-    juce::TextButton generateButton { "GENERATE" };
+    juce::TextButton generateButton { "GENERATE" }, clearReferencesButton { "CLEAR" };
+    juce::Label referenceStatus;
+    std::array<bool, 5> selectedReferences {};
+    bool similarInProgress = false;
     juce::ComboBox keyChoice, scaleChoice;
-    juce::ComboBox datasetMode;
+    juce::ComboBox datasetMode, presetChoice;
+    PresetManager presets;
+    juce::Array<juce::File> presetFiles;
+    juce::File activePresetFile, activePresetAnalysis;
+    std::unique_ptr<juce::AlertWindow> presetDialog;
+    juce::TextButton savePresetButton { "SAVE CURRENT AS PRESET" }, openPresetsButton { "OPEN PRESETS FOLDER" };
+    void refreshPresets();
+    void selectPreset();
+    void saveCurrentPreset();
+    void updatePresetControls();
+    juce::File currentAnalysisFile() const;
     juce::TextButton chooseFolderButton { "CHOOSE FOLDER" }, analyzeButton { "ANALYZE" };
     juce::Label customFolder;
     juce::Slider mutation, variation, density;

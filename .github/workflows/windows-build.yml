@@ -1,0 +1,36 @@
+name: Windows test installer
+on:
+  push:
+    branches: ['build/windows-1.2.1']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+      - name: Build installer
+        shell: pwsh
+        run: |
+          ./scripts/build_windows.ps1 -SkipTests -LicenseOrigin 'https://icepunk-midi-generator-desktop.vercel.app' -LicensePublicKey '981ce8523ba7bb68b6866b2c21c6d77c97cc1375c149c75f9a33f3dc77963e60'
+          if (-not (Test-Path 'dist/ICEPUNK_MIDI_Generator_1.2.1_Windows_Setup.exe')) { throw 'Installer missing' }
+      - name: Run source tests
+        shell: pwsh
+        run: |
+          ./.release-tools/Scripts/python.exe -B -m unittest discover -s prototype/tests -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ctest --test-dir .release-build/windows/cmake-release-v2 -C Release --output-on-failure
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ICEPUNK-1.2.1-Windows-test-installer
+          path: dist/ICEPUNK_MIDI_Generator_1.2.1_Windows_Setup.exe
+          if-no-files-found: error

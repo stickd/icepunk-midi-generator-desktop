@@ -34,6 +34,13 @@ MainComponent::MainComponent(juce::File project) : projectRoot(std::move(project
     generateButton.setTooltip("Create five new MIDI variations");
     generateButton.onClick = [this] { generateNow(); };
     addAndMakeVisible(generateButton);
+    clearReferencesButton.setTooltip("Clear reference selections");
+    clearReferencesButton.onClick = [this] { clearReferences(); };
+    addAndMakeVisible(clearReferencesButton);
+    referenceStatus.setFont(Ice::font(10));
+    referenceStatus.setColour(juce::Label::textColourId, Ice::muted);
+    addAndMakeVisible(referenceStatus);
+    updateReferenceUI();
     keyChoice.addItem("RANDOM KEY", 1);
     const juce::StringArray roots { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
     for (int i = 0; i < roots.size(); ++i) keyChoice.addItem(roots[i], i + 2);
@@ -49,7 +56,11 @@ MainComponent::MainComponent(juce::File project) : projectRoot(std::move(project
     datasetMode.addItem("FACTORY MIDI", 1); datasetMode.addItem("CUSTOM MIDI", 2);
     datasetMode.setSelectedId(1);
     datasetMode.setTooltip("Factory MIDI uses the included dataset. Custom MIDI uses your analyzed MIDI folder.");
-    datasetMode.onChange = [this] { updateDatasetMode(); };
+    datasetMode.onChange = [this] {
+        activePresetFile = juce::File(); activePresetAnalysis = juce::File();
+        presetChoice.setSelectedId(1, juce::dontSendNotification);
+        updateDatasetMode();
+    };
     addAndMakeVisible(datasetMode);
     chooseFolderButton.onClick = [this] { chooseCustomFolder(); };
     analyzeButton.onClick = [this] { analyzeCustomFolder(); };
@@ -61,6 +72,14 @@ MainComponent::MainComponent(juce::File project) : projectRoot(std::move(project
     customFolder.setText(customProfile.existsAsFile() ? "Saved custom profile ready. Choose a folder to update it."
                                                        : "Choose a folder, then analyze it.", juce::dontSendNotification);
     addAndMakeVisible(customFolder);
+    presetChoice.setTooltip("Load a saved analysis without analyzing the source MIDI again.");
+    presetChoice.onChange = [this] { selectPreset(); };
+    savePresetButton.onClick = [this] { saveCurrentPreset(); };
+    openPresetsButton.onClick = [this] {
+        try { presets.getPresets(); presets.getPresetsDirectory().revealToUser(); refreshPresets(); }
+        catch (const std::exception& e) { setStatus(e.what(), true); }
+    };
+    addAndMakeVisible(presetChoice); addAndMakeVisible(savePresetButton); addAndMakeVisible(openPresetsButton);
     updateDatasetMode();
     configureLiveControl(mutation, "MUTATION", 0.0);
     configureLiveControl(variation, "VARIATION", 50.0);
@@ -68,6 +87,7 @@ MainComponent::MainComponent(juce::File project) : projectRoot(std::move(project
     for (int i = 0; i < 5; ++i)
     {
         rows[i] = std::make_unique<MidiPreview>(i + 1);
+        rows[i]->onToggleReference = [this, i] { toggleReference(i); };
         rows[i]->onExport = [this](const juce::File& f) { exportMidi(f); };
         rows[i]->onError = [this](juce::String text) { setStatus(text, true); };
         rows[i]->onDragActivity = [this](bool active) {
@@ -82,6 +102,7 @@ MainComponent::MainComponent(juce::File project) : projectRoot(std::move(project
     addAndMakeVisible(status);
     setStatus(result.failed() ? "Cannot create output folder: " + result.getErrorMessage()
                             : "Press Generate. Find your next idea.", result.failed());
+    refreshPresets();
     setSize(840, 870);
 }
 
@@ -90,6 +111,7 @@ MainComponent::~MainComponent()
     stopTimer();
     worker.reset();
     analysisWorker.reset();
+    presetDialog.reset();
     chooser.reset();
     if (sessionRoot.getParentDirectory() == outputRoot && sessionRoot.getFileName().startsWith("session-")
         && sessionRoot.getChildFile(".icepunk-session").existsAsFile())
@@ -118,24 +140,63 @@ void MainComponent::setStatus(juce::String text, bool error)
     status.setColour(juce::Label::textColourId, error ? juce::Colour(0xffe7a99b) : Ice::muted);
 }
 
+int MainComponent::referenceCount() const
+{
+    return int(std::count(selectedReferences.begin(), selectedReferences.end(), true));
+}
+
+void MainComponent::updateReferenceUI()
+{
+    const int count = referenceCount();
+    if (!busy) generateButton.setButtonText(count ? "GENERATE SIMILAR" : "GENERATE");
+    referenceStatus.setText(count ? juce::String(count) + (count == 1 ? " reference selected" : " references selected") : juce::String(), juce::dontSendNotification);
+    clearReferencesButton.setVisible(count > 0);
+    clearReferencesButton.setEnabled(!busy);
+    for (int i = 0; i < 5; ++i) if (rows[size_t(i)]) rows[size_t(i)]->setReferenceSelected(selectedReferences[size_t(i)]);
+}
+
+void MainComponent::toggleReference(int index)
+{
+    if (busy || analysisBusy || dragging || exportOpen || current.clips.size() != 5) return;
+    auto& selected = selectedReferences[size_t(index)];
+    if (!selected && referenceCount() == 3) { setStatus("Choose up to three references. Clear or deselect one first."); return; }
+    flushLiveMidi();
+    selected = !selected;
+    updateReferenceUI();
+    updateDatasetMode();
+}
+
+void MainComponent::clearReferences()
+{
+    if (busy || dragging || exportOpen) return;
+    selectedReferences.fill(false);
+    updateReferenceUI();
+    updateDatasetMode();
+}
+
 void MainComponent::generateNow()
 {
-    if (busy || analysisBusy || dragging || exportOpen) return;
-    const bool custom = datasetMode.getSelectedId() == 2;
-    if (custom && !customProfile.existsAsFile())
+    if (busy || analysisBusy || dragging || exportOpen || presetDialog) return;
+    const bool custom = datasetMode.getSelectedId() == 2 && activePresetFile == juce::File();
+    if (custom && referenceCount() == 0 && !customProfile.existsAsFile())
     {
         setStatus("Analyze a MIDI folder before generating Custom MIDI.", true);
         return;
     }
+    flushLiveMidi();
+    similarInProgress = referenceCount() > 0;
     worker.reset(); busy = true; lastError.clear(); pulse = 0;
+    updateReferenceUI();
+    updatePresetControls();
     generateButton.setEnabled(false); generateButton.setButtonText("GENERATING");
     for (auto& row : rows) row->setEnabled(false);
     const auto target = selectedTargetKey();
     setStatus(custom ? "Creating five Custom MIDI patterns..." : (target.isEmpty() ? "Creating five new patterns..." : "Creating five patterns in " + target + "...")); startTimer(300);
     juce::Component::SafePointer<MainComponent> safe(this);
-    worker = std::make_unique<GenerationWorker>(*engine, target, custom ? customProfile : juce::File(), [safe](GenerationBatch batch, juce::String error) {
+    worker = std::make_unique<GenerationWorker>(*engine, target, activePresetFile != juce::File() ? activePresetAnalysis : (custom ? customProfile : juce::File()), [safe](GenerationBatch batch, juce::String error) {
         if (safe) safe->finish(std::move(batch), error);
     });
+    if (similarInProgress) worker->setSimilar(current, selectedReferences, liveControls(), sessionRoot);
     worker->startThread();
 }
 
@@ -143,13 +204,14 @@ void MainComponent::updateDatasetMode()
 {
     const bool custom = datasetMode.getSelectedId() == 2;
     chooseFolderButton.setVisible(custom); analyzeButton.setVisible(custom); customFolder.setVisible(custom);
-    generateButton.setEnabled(!busy && !analysisBusy && !dragging && !exportOpen && (!custom || customProfile.existsAsFile()));
+    generateButton.setEnabled(!busy && !analysisBusy && !dragging && !exportOpen && (referenceCount() > 0 || activePresetFile != juce::File() || !custom || customProfile.existsAsFile()));
+    updatePresetControls();
     repaint();
 }
 
 void MainComponent::chooseCustomFolder()
 {
-    if (busy || analysisBusy || exportOpen) return;
+    if (busy || analysisBusy || exportOpen || presetDialog) return;
     auto initial = customFolderPath.isDirectory() ? customFolderPath : juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
     chooser = std::make_unique<juce::FileChooser>("Choose MIDI dataset folder", initial);
     juce::Component::SafePointer<MainComponent> safe(this);
@@ -169,12 +231,14 @@ void MainComponent::chooseCustomFolder()
 
 void MainComponent::analyzeCustomFolder()
 {
+    if (presetDialog || dragging || exportOpen) return;
     if (busy || analysisBusy || !customFolderPath.isDirectory())
     {
         if (!customFolderPath.isDirectory()) setStatus("Choose a folder containing MIDI files first.", true);
         return;
     }
     analysisWorker.reset(); analysisBusy = true;
+    updatePresetControls();
     chooseFolderButton.setEnabled(false); analyzeButton.setEnabled(false); analyzeButton.setButtonText("ANALYZING");
     generateButton.setEnabled(false);
     setStatus("Analyzing Custom MIDI folder in the background...");
@@ -189,6 +253,8 @@ void MainComponent::finishDatasetAnalysis(DatasetAnalysis result, juce::String e
     analysisBusy = false; analyzeButton.setButtonText("ANALYZE"); chooseFolderButton.setEnabled(true); analyzeButton.setEnabled(true);
     if (error.isNotEmpty()) { setStatus(error, true); updateDatasetMode(); return; }
     customProfile = result.profile;
+    activePresetFile = juce::File(); activePresetAnalysis = juce::File();
+    presetChoice.setSelectedId(1, juce::dontSendNotification);
     customFolder.setText("Ready: " + juce::String(result.filesAnalyzed) + " MIDI, " + juce::String(result.patterns)
                          + " patterns" + (result.filesFailed ? ", " + juce::String(result.filesFailed) + " skipped" : ""),
                          juce::dontSendNotification);
@@ -210,7 +276,8 @@ void MainComponent::timerCallback()
 void MainComponent::finish(GenerationBatch batch, juce::String error)
 {
     stopTimer(); busy = false; liveWritePending = false; lastError = error;
-    generateButton.setEnabled(true); generateButton.setButtonText("GENERATE");
+    updatePresetControls();
+    generateButton.setEnabled(true); updateReferenceUI();
     for (auto& row : rows) row->setEnabled(true);
     if (error.isNotEmpty()) { setStatus(error + "  Previous patterns kept. Try again.", true); return; }
     if (batch.clips.size() != 5) { lastError = "Expected five patterns."; setStatus(lastError, true); return; }
@@ -221,7 +288,7 @@ void MainComponent::finish(GenerationBatch batch, juce::String error)
     applyLiveControls();
     flushLiveMidi();
     for (int i = 0; i < 5; ++i) rows[i]->setClip(current.clips[size_t(i)]);
-    setStatus("Five new ideas. Drag a pattern into your DAW, or export it.");
+    setStatus(similarInProgress ? "Similar patterns ready. Selected references were kept." : "Five new ideas. Drag a pattern into your DAW, or export it.");
     repaint();
 }
 
@@ -239,8 +306,8 @@ void MainComponent::configureLiveControl(juce::Slider& control, juce::String nam
     control.setColour(juce::Slider::textBoxTextColourId, Ice::white);
     control.setName(name);
     control.setDoubleClickReturnValue(true, initial);
-    if (name == "MUTATION") control.setTooltip("How many notes change. 0% keeps original pitches and rhythm. Double-click to reset.");
-    else if (name == "VARIATION") control.setTooltip("Strength of Mutation: pitch, rhythm and velocity changes. Has no effect when Mutation is 0%. Double-click to reset.");
+    if (name == "MUTATION") control.setTooltip("How many notes change while staying in key. 0% restores the original. Double-click to reset.");
+    else if (name == "VARIATION") control.setTooltip("Changes the strength and character of Mutation. Has no effect when Mutation is 0%. Double-click to reset.");
     else control.setTooltip("Keep fewer notes: 100% is the original density, 0% keeps one note repeated every two bars. Double-click to reset.");
     control.onValueChange = [this] { applyLiveControls(); };
     addAndMakeVisible(control);
@@ -251,8 +318,16 @@ void MainComponent::applyLiveControls()
     if (busy || current.clips.empty()) return;
     try
     {
-        ::updateLivePreview(current, liveControls());
-        for (int i = 0; i < 5; ++i) rows[i]->setClip(current.clips[size_t(i)]);
+        for (int i = 0; i < 5; ++i)
+        {
+            if (!selectedReferences[size_t(i)])
+            {
+                GenerationBatch single {current.folder, {current.clips[size_t(i)]}};
+                ::updateLivePreview(single, liveControls());
+                current.clips[size_t(i)] = std::move(single.clips[0]);
+            }
+            rows[i]->setClip(current.clips[size_t(i)]);
+        }
         liveWritePending = true;
         // Debounce disk writes while the user is still dragging a control.
         startTimer(80);
@@ -271,7 +346,9 @@ void MainComponent::flushLiveMidi()
     if (!liveWritePending || busy || current.clips.empty()) return;
     try
     {
-        ::writeLiveMidi(current, liveControls());
+        GenerationBatch unlocked {current.folder, {}};
+        for (int i = 0; i < 5; ++i) if (!selectedReferences[size_t(i)]) unlocked.clips.push_back(current.clips[size_t(i)]);
+        ::writeLiveMidi(unlocked, liveControls());
         liveWritePending = false;
         stopTimer();
         setStatus("Live controls update the five MIDI patterns. Return a control to its old value to restore that state.");
@@ -306,12 +383,18 @@ void MainComponent::resized()
 {
     const int margin = 32;
     generateButton.setBounds(getWidth() - margin - 210, 47, 210, 46);
+    referenceStatus.setBounds(getWidth() - margin - 210, 96, 155, 18);
+    clearReferencesButton.setBounds(getWidth() - margin - 54, 95, 54, 20);
     keyChoice.setBounds(margin, 117, 155, 28);
     scaleChoice.setBounds(margin + 165, 117, 120, 28);
     datasetMode.setBounds(margin, 163, 170, 28);
     chooseFolderButton.setBounds(margin + 180, 163, 130, 28);
     analyzeButton.setBounds(margin + 320, 163, 95, 28);
     customFolder.setBounds(margin + 425, 163, getWidth() - margin - 425, 28);
+    const int presetX = margin + 370, presetWidth = getWidth() - margin - presetX;
+    presetChoice.setBounds(presetX, 225, presetWidth, 28);
+    savePresetButton.setBounds(presetX, 259, presetWidth, 26);
+    openPresetsButton.setBounds(presetX, 288, presetWidth, 24);
     const int controlsY = 226;
     mutation.setBounds(margin, controlsY, 100, 78);
     variation.setBounds(margin + 116, controlsY, 100, 78);
@@ -344,6 +427,7 @@ void MainComponent::paint(juce::Graphics& g)
     g.drawText("KEY / SCALE", 32, 103, 160, 12, juce::Justification::left);
     g.setColour(Ice::muted); g.setFont(Ice::font(9, true));
     g.drawText("DATASET", 32, 149, 160, 12, juce::Justification::left);
+    g.drawText("PRESET", 402, 203, 160, 12, juce::Justification::left);
     g.drawText("LIVE CONTROLS", 32, 203, 160, 12, juce::Justification::left);
     for (auto* control : { &mutation, &variation, &density })
     {
@@ -359,4 +443,138 @@ void MainComponent::paint(juce::Graphics& g)
     g.setFont(Ice::font(9));
     g.drawText("FIVE VARIATIONS", 33, 331, 180, 15, juce::Justification::left);
     g.drawText("DRAG TO YOUR DAW", getWidth() - 225, 331, 192, 15, juce::Justification::right);
+}
+
+
+juce::File MainComponent::currentAnalysisFile() const
+{
+    if (activePresetFile != juce::File()) return activePresetAnalysis;
+    if (datasetMode.getSelectedId() == 2) return customProfile;
+    // Source builds and PyInstaller's cross-platform resource layouts.
+    for (const auto& relative : { "analysis_output/midi_analysis.json",
+                                "engine/_internal/resources/analysis_output/midi_analysis.json",
+                                "engine/resources/analysis_output/midi_analysis.json" })
+    {
+        auto file = projectRoot.getChildFile(relative);
+        if (file.existsAsFile()) return file;
+    }
+    return {};
+}
+
+void MainComponent::updatePresetControls()
+{
+    const bool available = !busy && !analysisBusy && !exportOpen && !dragging && !presetDialog;
+    presetChoice.setEnabled(available);
+    savePresetButton.setEnabled(available && currentAnalysisFile().existsAsFile());
+    openPresetsButton.setEnabled(available);
+    datasetMode.setEnabled(available);
+}
+
+void MainComponent::refreshPresets()
+{
+    try
+    {
+        presetFiles = presets.getPresets();
+        presetChoice.clear(juce::dontSendNotification);
+        presetChoice.addItem("Default / Current Dataset", 1);
+        int selected = 1;
+        for (int i = 0; i < presetFiles.size(); ++i)
+        {
+            // Keep corrupted imports selectable so loading explains the error.
+            auto label = presetFiles[i].getFileNameWithoutExtension();
+            try { label = presets.loadPreset(presetFiles[i]).name; }
+            catch (const std::exception&) { label += " (invalid)"; }
+            presetChoice.addItem(label, i + 2);
+            if (presetFiles[i] == activePresetFile) selected = i + 2;
+        }
+        // A loaded snapshot stays usable even if its preset was removed externally.
+        if (activePresetFile != juce::File() && selected == 1)
+        {
+            presetFiles.add(activePresetFile);
+            selected = presetFiles.size() + 1;
+            presetChoice.addItem(activePresetFile.getFileNameWithoutExtension() + " (loaded)", selected);
+        }
+        presetChoice.setSelectedId(selected, juce::dontSendNotification);
+    }
+    catch (const std::exception& e) { setStatus(e.what(), true); }
+    updatePresetControls();
+}
+
+void MainComponent::selectPreset()
+{
+    if (busy || analysisBusy || exportOpen || dragging || presetDialog) { refreshPresets(); return; }
+    const int index = presetChoice.getSelectedId() - 2;
+    if (index < 0)
+    {
+        activePresetFile = juce::File(); activePresetAnalysis = juce::File();
+        updateDatasetMode();
+        setStatus("Using the current dataset. Press Generate for new patterns.");
+        return;
+    }
+    try
+    {
+        if (index >= presetFiles.size()) throw std::runtime_error("Preset is no longer available. Refresh the presets folder.");
+        auto preset = presets.loadPreset(presetFiles[index]);
+        auto snapshot = sessionRoot.getChildFile("active-preset.json");
+        // Commit selection only after a validated, atomic snapshot is available.
+        PresetManager::writeAnalysis(snapshot, preset.analysis);
+        activePresetFile = preset.file; activePresetAnalysis = snapshot;
+        updateDatasetMode();
+        setStatus("Loaded preset: " + preset.name + ". Press Generate for new patterns.");
+    }
+    catch (const std::exception& e) { refreshPresets(); setStatus(e.what(), true); }
+}
+
+void MainComponent::saveCurrentPreset()
+{
+    if (busy || analysisBusy || exportOpen || dragging || presetDialog) return;
+    try
+    {
+        auto analysis = PresetManager::readAnalysis(currentAnalysisFile());
+        presetDialog = std::make_unique<juce::AlertWindow>("Save Current as Preset", "Enter a unique preset name (up to 80 characters).", juce::MessageBoxIconType::NoIcon, this);
+        presetDialog->addTextEditor("name", "", "Preset name:");
+        presetDialog->addButton("Save", 1, juce::KeyPress(juce::KeyPress::returnKey));
+        presetDialog->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+        updatePresetControls();
+        juce::Component::SafePointer<MainComponent> safe(this);
+        presetDialog->enterModalState(true, juce::ModalCallbackFunction::create([safe, analysis](int result) {
+            if (!safe) return;
+            auto name = safe->presetDialog->getTextEditorContents("name");
+            safe->presetDialog.reset();
+            if (result == 1)
+            {
+                try
+                {
+                    auto preset = safe->presets.savePreset(name, analysis);
+                    auto snapshot = safe->sessionRoot.getChildFile("active-preset.json");
+                    PresetManager::writeAnalysis(snapshot, preset.analysis);
+                    safe->activePresetFile = preset.file; safe->activePresetAnalysis = snapshot;
+                    safe->setStatus("Saved preset: " + preset.name);
+                }
+                catch (const std::exception& e) { safe->setStatus(e.what(), true); }
+            }
+            safe->refreshPresets(); safe->updateDatasetMode();
+        }), false);
+    }
+    catch (const std::exception& e) { setStatus(e.what(), true); }
+}
+
+
+void MainComponent::exercisePresetSelectionForTest()
+{
+    auto analysis = PresetManager::readAnalysis(currentAnalysisFile());
+    auto saved = presets.savePreset("Smoke-" + juce::Uuid().toString(), analysis);
+    refreshPresets();
+    presetChoice.setSelectedId(presetFiles.indexOf(saved.file) + 2, juce::dontSendNotification);
+    selectPreset();
+    if (activePresetFile != saved.file || !activePresetAnalysis.existsAsFile())
+        throw std::runtime_error("Preset selection did not activate the saved analysis.");
+    auto snapshot = activePresetAnalysis.loadFileAsString();
+    saved.file.replaceWithText("{corrupted");
+    selectPreset();
+    if (activePresetFile != saved.file || activePresetAnalysis.loadFileAsString() != snapshot)
+        throw std::runtime_error("Failed preset load replaced the previous active analysis.");
+    // Generation must use its loaded snapshot, even after the source preset disappears.
+    saved.file.deleteFile();
+    refreshPresets();
 }

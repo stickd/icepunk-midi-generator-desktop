@@ -9,11 +9,25 @@ namespace Ice
     { return juce::Font(juce::FontOptions("Segoe UI", size, bold ? juce::Font::bold : juce::Font::plain)); }
 }
 
+class ReferenceButton final : public juce::Button
+{
+public:
+    ReferenceButton() : Button("Select as reference") { setClickingTogglesState(false); }
+    void paintButton(juce::Graphics& g, bool, bool) override
+    {
+        auto r = getLocalBounds().toFloat().reduced(4.0f);
+        g.setColour(isEnabled() ? Ice::blue : Ice::muted.withAlpha(0.4f));
+        g.drawEllipse(r, 1.3f);
+        if (getToggleState()) g.fillEllipse(r.reduced(4.0f));
+    }
+};
+
 class MidiPreview final : public juce::Component
 {
 public:
     explicit MidiPreview(int number);
     void setClip(const GeneratedClip&);
+    void setReferenceSelected(bool selected) { reference.setToggleState(selected, juce::dontSendNotification); }
     void paint(juce::Graphics&) override;
     void resized() override;
     void mouseEnter(const juce::MouseEvent&) override { hovered = true; repaint(); }
@@ -21,11 +35,13 @@ public:
     void mouseDown(const juce::MouseEvent&) override { dragged = false; }
     void mouseDrag(const juce::MouseEvent&) override;
     std::function<void(bool)> onDragActivity;
+    std::function<void()> onToggleReference;
     std::function<void(const juce::File&)> onExport;
     std::function<void(juce::String)> onError;
 private:
     int index;
     GeneratedClip clip;
     bool hovered = false, dragged = false;
+    ReferenceButton reference;
     juce::TextButton exportButton { "EXPORT" };
 };
